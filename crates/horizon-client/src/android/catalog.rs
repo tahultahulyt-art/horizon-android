@@ -416,12 +416,16 @@ impl Catalog {
     }
     pub fn browse(&mut self, home: &Path) {
         self.searches.cancel_interest();
+        self.results.clear();
         if self.page.is_catalog() {
-            self.request_search(home, false);
+            self.status = "Local files only. Import from your phone or open Files.".into();
         }
+        let _ = home;
     }
     fn request_search(&mut self, home: &Path, refresh: bool) {
-        if !self.page.is_catalog() {
+        // Online add-on catalogs were removed at the owner's request.
+        const ONLINE_CATALOGS: bool = false;
+        if !ONLINE_CATALOGS || !self.page.is_catalog() {
             return;
         }
         if self.page == Page::Mods && self.query.trim().starts_with("https://") {

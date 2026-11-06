@@ -416,253 +416,86 @@ impl Launcher {
             self.list_view = Some(self.wardrobe.view);
             self.catalog.scroll = self.catalog.scroll.min(self.wardrobe.view[2]);
         } else if page.is_catalog() {
+            use horizon_client::content_files::Kind;
+            let kind = match page {
+                Page::Mods => Kind::Mods,
+                Page::Shaders => Kind::Shaders,
+                _ => Kind::Packs,
+            };
             ui.text(
                 Face::Medium,
-                18.0,
+                26.0,
                 32.0,
-                142.0,
+                140.0,
                 color::TEXT,
-                if page == Page::Mods {
-                    "Horizon Mods"
-                } else if page == Page::Shaders {
-                    if w < 360.0 { "Shaders" } else { "Shader Packs" }
-                } else {
-                    "Resource Packs"
-                },
+                &format!("Local {}", page.name()),
             );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [32.0, 174.0, w - 240.0, 44.0],
-                &format!(
-                    "{}{}",
-                    if page == Page::Mods {
-                        "Search / .hmod URL: "
-                    } else {
-                        "Search: "
-                    },
-                    self.catalog.query
-                ),
-                Action::Field("search"),
-                false,
+            ui.text(
+                Face::Regular,
+                14.0,
+                32.0,
+                181.0,
+                color::MUTED,
+                "Add files from your phone. Online catalogs are removed.",
             );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [w - 190.0, 174.0, 158.0, 44.0],
-                if page == Page::Mods && self.catalog.query.trim().starts_with("https://") {
-                    "Import .hmod"
-                } else {
-                    "Search"
-                },
-                Action::Search,
-                true,
-            );
-            if matches!(page, Page::Shaders | Page::Mods) {
-                use crate::shader_catalog::Origin;
-                let width = ((w - 185.0) / 2.0).clamp(58.0, 120.0);
-                for (i, origin) in [Origin::Horizon, Origin::Modrinth].into_iter().enumerate() {
-                    let rect = [w - 32.0 - (2 - i) as f32 * width, 134.0, width - 5.0, 32.0];
-                    button(
-                        &mut ui,
-                        &mut self.targets,
-                        rect,
-                        origin.source().label(),
-                        if page == Page::Mods {
-                            Action::ModSource(origin)
-                        } else {
-                            Action::ShaderSource(origin)
-                        },
-                        false,
-                    );
-                    if (if page == Page::Mods {
-                        self.catalog.config.mod_source
-                    } else {
-                        self.catalog.config.shader_source
-                    }) == origin
-                    {
-                        ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT);
-                    }
-                }
-            }
-            let hint = match page {
-                Page::Mods
-                    if self.catalog.config.mod_source
-                        == crate::shader_catalog::Origin::Modrinth =>
-                {
-                    "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
-                }
-                Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
-                Page::Shaders
-                    if self.catalog.config.shader_source
-                        == crate::shader_catalog::Origin::Modrinth =>
-                {
-                    "Modrinth shader ZIPs / experimental compatibility; some packs may not work"
-                }
-                Page::Shaders => "Horizon native .hshader packs",
-                _ => "Verified downloads / enable in Installed",
-            };
-            let hint = ui.fit_text(Face::Regular, 14.0, hint, w - 64.0);
-            ui.text(Face::Regular, 14.0, 32.0, 270.0, color::MUTED, &hint);
-            let kind = match page {
-                Page::Mods => horizon_client::content_files::Kind::Mods,
-                Page::Shaders => horizon_client::content_files::Kind::Shaders,
-                _ => horizon_client::content_files::Kind::Packs,
-            };
-            let file_button_width = ((w - 72.0) / 2.0).min(158.0);
-            button(
-                &mut ui,
-                &mut self.targets,
-                [32.0, 222.0, file_button_width, 38.0],
-                "Open folder",
-                Action::OpenFolder(kind),
-                false,
-            );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [w - 32.0 - file_button_width, 222.0, file_button_width, 38.0],
-                "Import file",
-                Action::Import(kind),
-                false,
-            );
-            let bundled: Vec<_> = if page == Page::Mods
-                && self.catalog.config.mod_source == crate::shader_catalog::Origin::Horizon
+            let bw = ((w - 80.0) / 3.0).max(70.0);
+            for (i, (label, action)) in [
+                ("Import file", Action::Import(kind)),
+                ("Open folder", Action::OpenFolder(kind)),
+                ("Installed", Action::Page(Page::Installed)),
+            ]
+            .into_iter()
+            .enumerate()
             {
-                let query = self.catalog.query.to_lowercase();
-                horizon_client::mod_list::ANDROID_BUNDLED
-                    .into_iter()
-                    .filter(|(id, title, _)| {
-                        id.contains(&query) || title.to_lowercase().contains(&query)
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let catalog_rows: Vec<_> = self
-                .catalog
-                .results
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| {
-                    !(page == Page::Mods
-                        && p.source == crate::browser::SourceId::Horizon
-                        && horizon_client::mod_list::ANDROID_BUNDLED
-                            .iter()
-                            .any(|(id, _, _)| *id == p.id))
-                })
-                .collect();
-            let row_count = bundled.len() + catalog_rows.len();
-            let top = 296.0;
-            let bottom = h - 112.0;
-            self.catalog.scroll = self
-                .catalog
-                .scroll
-                .clamp(0.0, (row_count as f32 * 78.0 - (bottom - top)).max(0.0));
-            self.list_view = Some([
-                top,
-                bottom,
-                (row_count as f32 * 78.0 - (bottom - top)).max(0.0),
-            ]);
-            for (row, (id, title, description)) in bundled.iter().enumerate() {
-                let y = top + row as f32 * 78.0 - self.catalog.scroll;
-                if y < top - 1.0 || y + 68.0 > bottom {
-                    continue;
-                }
-                let title = ui.fit_text(Face::Medium, 19.0, title, w - 214.0);
-                let summary = ui.fit_text(Face::Regular, 14.0, description, w - 214.0);
-                ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
-                ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
                 button(
                     &mut ui,
                     &mut self.targets,
-                    [w - 150.0, y, 118.0, 42.0],
-                    if self.catalog.bundled_enabled.contains(*id) {
-                        "Disable"
-                    } else {
-                        "Enable"
-                    },
-                    Action::ToggleBundled(id),
-                    false,
+                    [32.0 + i as f32 * (bw + 8.0), 222.0, bw, 42.0],
+                    label,
+                    action,
+                    i == 0,
                 );
             }
-            for (row, (i, p)) in catalog_rows.into_iter().enumerate() {
-                let y = top + (row + bundled.len()) as f32 * 78.0 - self.catalog.scroll;
-                let download = self.catalog.download_label(p);
-                if download.is_none()
-                    && !crate::catalog::source_only_mod(p)
-                    && !(p.kind == crate::browser::Kind::Mod
-                        && p.source == crate::browser::SourceId::Modrinth)
-                {
+            ui.text(
+                Face::Regular,
+                14.0,
+                32.0,
+                282.0,
+                color::MUTED,
+                "Use Files to copy any safe filename. Import checks supported add-ons.",
+            );
+            if page == Page::Mods {
+                let bundled = horizon_client::mod_list::ANDROID_BUNDLED;
+                let top = 325.0;
+                let bottom = h - 110.0;
+                let maximum = (bundled.len() as f32 * 78.0 - (bottom - top)).max(0.0);
+                self.catalog.scroll = self.catalog.scroll.clamp(0.0, maximum);
+                self.list_view = Some([top, bottom, maximum]);
+                for (row, (id, title, description)) in bundled.iter().enumerate() {
+                    let y = top + row as f32 * 78.0 - self.catalog.scroll;
                     self.list_targets
-                        .push(([w - 150.0, y, 118.0, 70.0], Action::Install(i)));
-                }
-                if y < top || y + 70.0 > bottom {
-                    continue;
-                }
-                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - 214.0);
-                let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 214.0);
-                ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
-                ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
-                if let Some(state) = download {
-                    ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
-                } else if p.kind == crate::browser::Kind::Mod
-                    && p.source == crate::browser::SourceId::Modrinth
-                {
-                    ui.text(
-                        Face::Regular,
-                        14.0,
-                        w - 150.0,
-                        y + 12.0,
-                        color::MUTED,
-                        "Java mod",
-                    );
-                } else if crate::catalog::source_only_mod(p) {
-                    ui.text(
-                        Face::Regular,
-                        14.0,
-                        w - 150.0,
-                        y + 12.0,
-                        color::MUTED,
-                        ".hnmod: later",
-                    );
-                } else if p.kind == crate::browser::Kind::Mod && !cfg!(target_pointer_width = "64")
-                {
-                    ui.text(
-                        Face::Regular,
-                        14.0,
-                        w - 150.0,
-                        y + 12.0,
-                        color::MUTED,
-                        "64-bit required",
-                    );
-                } else {
+                        .push(([w - 150.0, y, 118.0, 42.0], Action::ToggleBundled(id)));
+                    if y < top || y + 68.0 > bottom {
+                        continue;
+                    }
+                    let title = ui.fit_text(Face::Medium, 19.0, title, w - 214.0);
+                    let summary = ui.fit_text(Face::Regular, 14.0, description, w - 214.0);
+                    ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
+                    ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
                     button(
                         &mut ui,
                         &mut self.targets,
                         [w - 150.0, y, 118.0, 42.0],
-                        self.catalog.install_button(p),
-                        Action::Install(i),
+                        if self.catalog.bundled_enabled.contains(*id) {
+                            "Disable"
+                        } else {
+                            "Enable"
+                        },
+                        Action::ToggleBundled(id),
                         false,
                     );
                 }
             }
-            button(
-                &mut ui,
-                &mut self.targets,
-                [32.0, h - 100.0, 120.0, 40.0],
-                "Previous",
-                Action::Previous,
-                false,
-            );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [166.0, h - 100.0, 120.0, 40.0],
-                "Next",
-                Action::Next,
-                false,
-            );
         } else if page == Page::Installed {
             use horizon_client::content_files::Kind;
             let top = 156.0;
