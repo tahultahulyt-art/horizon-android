@@ -104,11 +104,109 @@ mod smartf3_settings;
 #[path = "android_bundled/smartf3/smartf3_click.rs"]
 mod smartf3_click;
 
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/runtime.rs"]
+pub(super) mod armorhud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/settings.rs"]
+mod armorhud_settings;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/hud.rs"]
+mod armorhud_hud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/key.rs"]
+mod armorhud_key;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/click.rs"]
+mod armorhud_click;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/armorhud/list.rs"]
+mod armorhud_list;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/runtime.rs"]
+pub(super) mod mod_crosshair_indicator;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/settings.rs"]
+mod crosshair_indicator_settings;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/hud.rs"]
+mod crosshair_indicator_hud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/glue.rs"]
+pub(super) mod mod_crosshair_indicator_glue;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/key.rs"]
+mod crosshair_indicator_key;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/click.rs"]
+mod crosshair_indicator_click;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/crosshair_indicator/list.rs"]
+mod crosshair_indicator_list;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/runtime.rs"]
+pub(super) mod mod_status_effect_hud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/settings.rs"]
+mod status_effect_hud_settings;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/hud.rs"]
+mod status_effect_hud_hud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/glue.rs"]
+pub(super) mod mod_status_effect_hud_glue;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/click.rs"]
+mod status_effect_hud_click;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/status_effect_hud/list.rs"]
+mod status_effect_hud_list;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/keystrokes/runtime.rs"]
+pub(super) mod official_keystrokes;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/keystrokes/settings.rs"]
+mod keystrokes_settings;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/keystrokes/hud.rs"]
+mod keystrokes_hud;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/keystrokes/click.rs"]
+mod keystrokes_click;
+
+#[cfg(target_os = "android")]
+#[path = "android_bundled/keystrokes/list.rs"]
+mod keystrokes_list;
+
 pub(super) fn native_key(game: &mut Game<'_>, key: &str, pressed: bool) {
     let _ = (&game, &key, &pressed);
     #[cfg(target_os = "android")]
     {
         zoom_key::run(&mut *game, key, pressed);
+        armorhud_key::run(game, key, pressed);
+        crosshair_indicator_key::run(game, key, pressed);
     }
 }
 
@@ -136,6 +234,10 @@ pub(super) fn native_mods(game: &mut Game<'_>, mods: &mut Vec<NativeMod>) {
         minimap_list::run(&mut *mods);
         recipes_list::run(&mut *mods);
         smartf3_list::run(&mut *mods);
+        armorhud_list::run(&mut *mods);
+        crosshair_indicator_list::run(&mut *mods);
+        status_effect_hud_list::run(&mut *mods);
+        keystrokes_list::run(&mut *mods);
     }
 }
 
@@ -147,6 +249,10 @@ pub(super) fn native_settings(game: &mut Game<'_>, mod_id: &str, buttons: &mut V
         minimap_settings::run(&mut *game, mod_id, &mut *buttons);
         recipes_settings::run(&mut *game, mod_id, &mut *buttons);
         smartf3_settings::run(&mut *game, mod_id, &mut *buttons);
+        armorhud_settings::run(&mut *game, mod_id, &mut *buttons);
+        crosshair_indicator_settings::run(&mut *game, mod_id, &mut *buttons);
+        status_effect_hud_settings::run(&mut *game, mod_id, &mut *buttons);
+        keystrokes_settings::run(&mut *game, mod_id, &mut *buttons);
     }
 }
 
@@ -158,6 +264,10 @@ pub(super) fn native_settings_click(game: &mut Game<'_>, mod_id: &str, button: u
         minimap_click::run(&mut *game, mod_id, button);
         recipes_click::run(&mut *game, mod_id, button);
         smartf3_click::run(&mut *game, mod_id, button);
+        armorhud_click::run(&mut *game, mod_id, button);
+        crosshair_indicator_click::run(&mut *game, mod_id, button);
+        status_effect_hud_click::run(&mut *game, mod_id, button);
+        keystrokes_click::run(&mut *game, mod_id, button);
     }
 }
 
@@ -199,4 +309,22 @@ pub(super) fn reset() {
     official_minimap::reset();
     official_recipes::set_viewer(None);
     smartf3_native::reset();
+    armorhud::reset();
+    official_keystrokes::reset();
+    mod_status_effect_hud::reset();
+}
+
+pub(super) fn native_hud(
+    game: &mut Game<'_>,
+    batch: &mut HudBatch,
+    corners: &mut horizon_client::extras_hud::Corners,
+) {
+    let _ = (&game, &batch, &corners);
+    #[cfg(target_os = "android")]
+    {
+        armorhud_hud::run(game, batch, corners);
+        crosshair_indicator_hud::run(game, batch, corners);
+        status_effect_hud_hud::run(game, batch, corners);
+        keystrokes_hud::run(game, batch, corners);
+    }
 }

@@ -11,7 +11,7 @@ use std::{
 
 pub const FILE: &str = "horizon-mods.txt";
 /// Fixed native modules compiled into Android APKs, all opt-in.
-pub const ANDROID_BUNDLED: [(&str, &str, &str); 4] = [
+pub const ANDROID_BUNDLED: [(&str, &str, &str); 8] = [
     (
         "zoom",
         "Zoom",
@@ -31,6 +31,26 @@ pub const ANDROID_BUNDLED: [(&str, &str, &str); 4] = [
         "smartf3",
         "SmartF3",
         "Configurable modules for the F3 debug screen",
+    ),
+    (
+        "armorhud",
+        "Armor HUD",
+        "Equipped armor, durability and low-durability alerts",
+    ),
+    (
+        "crosshair_indicator",
+        "Crosshair Indicator",
+        "Attack-reach indicator and optional cooldown bar",
+    ),
+    (
+        "status_effect_hud",
+        "Status Effect HUD",
+        "Active effects, levels and countdown timers",
+    ),
+    (
+        "keystrokes",
+        "Keystrokes",
+        "Movement and action display with clicks per second",
     ),
 ];
 

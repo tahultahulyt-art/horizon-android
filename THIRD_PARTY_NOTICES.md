@@ -84,3 +84,28 @@ copyright 2026 d3grando, MIT. Exact revisions and adaptation notes are recorded 
 module retains its full MIT LICENSE. Changes provide static Android hook
 adapters, opt-in configuration, profile-state reset and compatibility guards.
 These are a fixed compiled set, not support for loading arbitrary native mods.
+
+### Additional opt-in Android HUD ports
+
+The fixed Android bundle includes source adaptations of the following native
+Horizon mods. They are not Java/Fabric mods and do not load downloaded native
+source on the phone. Their original MIT license texts are retained beside each
+module in `crates/horizon-client/src/game/android_bundled/`.
+
+- Armor HUD 1.0.0, Copyright (c) 2026 Thomas-Slot.
+  Source: https://github.com/Thomas-Slot/horizon-armor-hud
+  Package SHA-256: `8bd85e1584f307201bce5de2e60466d603b61d4807803d4ebc02772b4f6b704b`.
+- Crosshair Indicator 1.0.0, Copyright (c) 2026 CayMac.
+  Source: https://github.com/CayMac97/crosshair-indicator
+  Package SHA-256: `96beba1f7c94fca492b552fb12af0d20047dc1799f0801607841d56b12786226`.
+- Status Effect HUD 1.0.0, Copyright (c) 2026 CayMac.
+  Source: https://github.com/CayMac97/status-effect-hud
+  Package SHA-256: `afa30125bb8b402892f1719e550b66d4eb4d7264895f71bb9c98a4caf5c7b432`.
+- Keystrokes 2.0.0, Copyright (c) 2026 Ludovic Marie and the Horizon contributors.
+  Source: https://github.com/horizon-rust/horizon-mods/tree/main/native/keystrokes
+  Package SHA-256: `bed34d2f8049e92c52cd7c91c0c4c8c9d165faaf0183500cf4021d9e04783a7d`.
+
+The package hashes were checked against the Horizon registry. Android adaptations
+use the existing opt-in bundled-mod switches, persist the original settings,
+respect left-handed armor layout and include touch/controller input in the
+Keystrokes display. Original authors have not tested or endorsed this APK.
