@@ -50,6 +50,12 @@ pub fn plain_name(name: &str) -> bool {
         )
         && Path::new(name).components().count() == 1
 }
+/// Files imports preserve bytes and accept any extension. Add-on installation
+/// still requires its supported extension and separate format validation.
+pub fn accepts_import_name(kind: Kind, name: &str, plain_file: bool) -> bool {
+    plain_name(name) && (plain_file || kind.accepts(name))
+}
+
 pub fn validate(
     path: &Path,
     kind: Kind,
@@ -338,5 +344,41 @@ mod tests {
         assert_eq!(out, b"test");
         assert!(copy_bounded(&mut io::repeat(0), &mut io::sink(), |_| true).is_err());
         assert!(copy_bounded(&mut Cursor::new(b"test"), &mut io::sink(), |_| false).is_err());
+    }
+}
+
+#[cfg(test)]
+mod file_import_tests {
+    use super::*;
+    #[test]
+    fn plain_file_import_accepts_any_extension_but_not_unsafe_names() {
+        for kind in Kind::ALL {
+            for name in [
+                "test.jar",
+                "notes.txt",
+                "image.png",
+                "archive.zip",
+                "mod.hmod",
+                "mod.hmod.zip",
+                "README",
+                "data.bin",
+            ] {
+                assert!(accepts_import_name(kind, name, true), "{kind:?}: {name}");
+            }
+            for name in [
+                "../escape.jar",
+                "/absolute",
+                "nested/file.txt",
+                "a\\b",
+                ".hidden",
+                "C:bad",
+                "",
+            ] {
+                assert!(!accepts_import_name(kind, name, true), "{name}");
+            }
+        }
+        assert!(!accepts_import_name(Kind::Mods, "test.jar", false));
+        assert!(accepts_import_name(Kind::Mods, "test.hmod", false));
+        assert!(!accepts_import_name(Kind::Packs, "notes.txt", false));
     }
 }

@@ -859,15 +859,15 @@ mod manager_tests {
         fs::create_dir_all(&home).unwrap();
         assert_eq!(list(&home, ROOT).unwrap().len(), 6);
         make_dir(&home, "p0/mods", "destination").unwrap();
-        fs::write(home.join("horizon-mods/test.txt"), b"original").unwrap();
+        fs::write(home.join("horizon-mods/test.jar"), b"original").unwrap();
         let copied = copy_into(
             &home,
-            "p0/mods/test.txt",
+            "p0/mods/test.jar",
             "p0/mods/destination",
             &mut |_| {},
         )
         .unwrap();
-        assert_eq!(copied, "test.txt");
+        assert_eq!(copied, "test.jar");
         assert!(
             copy_into(
                 &home,
@@ -877,11 +877,11 @@ mod manager_tests {
             )
             .is_err()
         );
-        let renamed = rename_entry(&home, "p0/mods/destination/test.txt", "renamed.txt").unwrap();
+        let renamed = rename_entry(&home, "p0/mods/destination/test.jar", "renamed.jar").unwrap();
         let moved = move_into(&home, &renamed, "p0/mods").unwrap();
-        assert_eq!(moved, "renamed.txt");
+        assert_eq!(moved, "renamed.jar");
         assert_eq!(
-            fs::read(home.join("horizon-mods/renamed.txt")).unwrap(),
+            fs::read(home.join("horizon-mods/renamed.jar")).unwrap(),
             b"original"
         );
         delete_tree(&home, "p0/mods/destination").unwrap();
@@ -894,7 +894,7 @@ mod manager_tests {
         assert_eq!(reports[0].name, "result.jsonl");
         let archive = home.join("horizon-mods/archive.zip");
         let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
-        zip.start_file("nested/test.txt", zip::write::SimpleFileOptions::default())
+        zip.start_file("nested/test.jar", zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"extracted").unwrap();
         zip.finish().unwrap();
@@ -910,7 +910,7 @@ mod manager_tests {
             fs::read(
                 home.join("horizon-mods")
                     .join(folder)
-                    .join("nested/test.txt")
+                    .join("nested/test.jar")
             )
             .unwrap(),
             b"extracted"

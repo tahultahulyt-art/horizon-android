@@ -234,7 +234,9 @@ pub extern "system" fn document_result(
         .spawn(move || {
             let result = (|| -> Result<()> {
                 let mut env = vm.attach_current_thread()?;
-                let fallback = if pending.kind == Kind::Mods {
+                let fallback = if pending.dest.is_some() {
+                    "imported-file"
+                } else if pending.kind == Kind::Mods {
                     "import.hmod"
                 } else {
                     "import.zip"
@@ -278,8 +280,13 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
         );
         return Ok(());
     }
-    if !content_files::plain_name(&name) || !request.kind.accepts(&name) {
-        return Err("Selected file has the wrong extension for this folder".into());
+    if !content_files::accepts_import_name(request.kind, &name, request.dest.is_some()) {
+        return Err(if request.dest.is_some() {
+            "That filename is not allowed"
+        } else {
+            "Selected file has the wrong extension for this folder"
+        }
+        .into());
     }
     let dir = request.home.join(request.kind.folder());
     std::fs::create_dir_all(&dir)?;
