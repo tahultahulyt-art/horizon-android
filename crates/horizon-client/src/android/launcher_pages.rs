@@ -109,37 +109,7 @@ pub(super) fn button(
     action: Action,
     accent: bool,
 ) {
-    let [x, y, w, h] = rect;
-    ui.rounded(
-        x,
-        y,
-        w,
-        h,
-        2.0,
-        if accent { color::ACCENT } else { color::RAISED },
-    );
-    let padding = (w * 0.12).clamp(4.0, 12.0);
-    let base = if w < 80.0 { 13.0 } else { 16.0 };
-    let font = if matches!(action, Action::Page(_)) {
-        (base * ((w - 2.0 * padding) / ui.measure(Face::Medium, base, label).max(1.0)).min(1.0))
-            .max(9.0)
-    } else {
-        base
-    };
-    let label = ui.fit_text(Face::Medium, font, label, w - 2.0 * padding);
-    ui.text(
-        Face::Medium,
-        font,
-        x + padding,
-        y + 11.0,
-        if accent {
-            color::ON_ACCENT
-        } else {
-            color::TEXT
-        },
-        &label,
-    );
-    targets.push((rect, action));
+    super::skin::button(ui, targets, rect, label, action, accent);
 }
 fn toggle(
     ui: &mut Ui,
@@ -262,62 +232,27 @@ impl Launcher {
         if let Some(bottom) = crate::native_ime::viewport_bottom() {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
-        let (w, h) = (ui.w, ui.h);
-        let scale = ui.density / ui.batch.scale;
-        ui.batch
-            .fill(&gui.atlas, 0.0, 0.0, w * scale, h * scale, color::BG);
-        ui.text(
-            Face::Medium,
-            if w < 400.0 {
-                20.0
-            } else if w < 700.0 {
-                24.0
-            } else {
-                32.0
-            },
-            32.0,
-            if w < 700.0 { 12.0 } else { 28.0 },
-            color::TEXT,
-            &format!("Horizon Android {}", crate::backend::VERSION),
-        );
-        button(
+        let mut shell_targets = Vec::new();
+        let inset = super::skin::shell(
             &mut ui,
-            &mut self.targets,
-            [
-                if w < 700.0 { 32.0 } else { w - 320.0 },
-                if w < 700.0 { 47.0 } else { 24.0 },
-                if w < 700.0 { w - 64.0 } else { 288.0 },
-                if w < 700.0 { 34.0 } else { 46.0 },
-            ],
+            &mut shell_targets,
+            self.catalog.page,
             &self.login.status(&self.catalog.config.name),
-            Action::Account,
-            self.login.signed_in,
         );
-        let tabs = Page::ALL.len() as f32;
-        let tab_margin = if w < 700.0 { 16.0 } else { 32.0 };
-        let tab_width = (w - 2.0 * tab_margin) / tabs;
-        for (i, page) in Page::ALL.iter().enumerate() {
-            let x = tab_margin + i as f32 * tab_width;
-            button(
-                &mut ui,
-                &mut self.targets,
-                [x, 88.0, tab_width - 4.0, 42.0],
-                if w < 700.0 {
-                    match page {
-                        Page::Installed => "Added",
-                        Page::Settings => "Setup",
-                        _ => page.name(),
-                    }
-                } else {
-                    page.name()
-                },
-                Action::Page(*page),
-                *page == self.catalog.page,
-            );
-        }
+        let body_start = ui.batch.vertices.len();
+        ui.w -= inset;
+        let (w, h) = (ui.w, ui.h);
         let compact = w < 700.0;
         let page = self.catalog.page;
-        if page == Page::Play {
+        if page == Page::Play && self.worker.is_none() {
+            super::skin::home(
+                &mut ui,
+                &mut self.targets,
+                horizon_client::official_install::ready(&self.home),
+                self.catalog.config.profile,
+                self.error.is_some(),
+            );
+        } else if page == Page::Play {
             use horizon_client::official_install::InstallStage;
             let installed = horizon_client::official_install::ready(&self.home);
             let installing = self.worker.is_some();
@@ -877,8 +812,7 @@ impl Launcher {
                         .config
                         .game_home(&self.home)
                         .join("horizon-touch.json");
-                    let sensitivity =
-                        horizon_client::touch::Settings::load_from(&path).sensitivity;
+                    let sensitivity = horizon_client::touch::Settings::load_from(&path).sensitivity;
                     self.touch_look_cache =
                         Some((sensitivity * 100.0).round().clamp(10.0, 1000.0) as u32);
                 }
@@ -1248,6 +1182,32 @@ impl Launcher {
                 false,
             );
         }
+        crate::documents::draw_ui(&mut ui);
+        // Translate the entire content viewport and its hit targets together.
+        // Existing Files/catalog/settings layouts remain unchanged internally.
+        let vertex_shift = inset * ui.density / ui.batch.scale;
+        for vertex in &mut ui.batch.vertices[body_start..] {
+            vertex.pos[0] += vertex_shift;
+            vertex.color = match vertex.color {
+                color::BG => super::skin::BG,
+                color::RAISED => super::skin::PANEL,
+                color::BORDER => super::skin::BORDER,
+                color::TEXT => super::skin::TEXT,
+                color::MUTED => super::skin::MUTED,
+                color::ACCENT => super::skin::ACCENT,
+                other => other,
+            };
+        }
+        for (rect, _) in &mut self.targets {
+            rect[0] += inset;
+        }
+        for (rect, _) in &mut self.list_targets {
+            rect[0] += inset;
+        }
+        if !self.login.visible && self.chooser.is_none() && !self.exit_confirmation {
+            self.targets.extend(shell_targets);
+        }
+
         if let Some(action) = self.pending_focus.take() {
             self.focus = self.targets.iter().position(|(_, a)| *a == action);
         }
@@ -1296,7 +1256,6 @@ impl Launcher {
                 horizon_client::hud::rgba(255, 255, 255, 48),
             );
         }
-        crate::documents::draw_ui(&mut ui);
         ui.finish();
 
         if !r.render(&game::loading_frame(&b))? && !b.patches.is_empty() {

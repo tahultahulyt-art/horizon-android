@@ -159,9 +159,7 @@ impl Files {
 
     fn spawn(
         &mut self,
-        job: impl FnOnce(&AtomicBool, &Arc<Mutex<String>>) -> Result<String, String>
-        + Send
-        + 'static,
+        job: impl FnOnce(&AtomicBool, &Arc<Mutex<String>>) -> Result<String, String> + Send + 'static,
     ) {
         if self.worker.is_some() {
             return;
@@ -201,7 +199,12 @@ impl Files {
         self.picked = Some(index);
         let mut choices = Vec::new();
         if entry.dir {
-            choices.push(("Open".into(), String::new(), Action::FilesOpen(index), false));
+            choices.push((
+                "Open".into(),
+                String::new(),
+                Action::FilesOpen(index),
+                false,
+            ));
         }
         if !entry.fixed {
             choices.push(("Rename".into(), String::new(), Action::FilesRename, false));
@@ -240,7 +243,11 @@ impl Files {
         let detail = if entry.dir {
             "Folder".to_owned()
         } else {
-            format!("{}  /  {}", size_label(entry.size), date_label(entry.modified_ms))
+            format!(
+                "{}  /  {}",
+                size_label(entry.size),
+                date_label(entry.modified_ms)
+            )
         };
         Some(Chooser::custom(
             "File",
@@ -428,20 +435,26 @@ impl Files {
         }
         buttons.push(("In system Files", Action::FilesReveal));
         buttons.push(("Refresh", Action::FilesRefresh));
-        let count = buttons.len() as f32;
+        let count = buttons.len();
+        let columns = count.min(((w - 64.0) / 110.0).floor().max(2.0) as usize);
         let gap = 8.0;
-        let width = ((w - 64.0 - gap * (count - 1.0)) / count).max(60.0);
+        let width = (w - 64.0 - gap * (columns as f32 - 1.0)) / columns as f32;
         for (i, (label, action)) in buttons.into_iter().enumerate() {
             button(
                 ui,
                 targets,
-                [32.0 + i as f32 * (width + gap), 186.0, width, 34.0],
+                [
+                    32.0 + (i % columns) as f32 * (width + gap),
+                    186.0 + (i / columns) as f32 * 42.0,
+                    width,
+                    34.0,
+                ],
                 label,
                 action,
                 false,
             );
         }
-        let top = 234.0;
+        let top = 234.0 + ((count.saturating_sub(1)) / columns) as f32 * 42.0;
         let bottom = h - 96.0;
         let row_height = 44.0;
         let maximum = (self.entries.len() as f32 * row_height - (bottom - top)).max(0.0);
@@ -456,7 +469,11 @@ impl Files {
             );
         }
         if self.busy() {
-            let progress = self.progress.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let progress = self
+                .progress
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             ui.text(
                 Face::Medium,
                 16.0,
@@ -479,7 +496,10 @@ impl Files {
                     Action::FilesOps(index)
                 }
             }));
-            list_targets.push(([w - 100.0, y, 68.0, row_height - 4.0], Action::FilesOps(index)));
+            list_targets.push((
+                [w - 100.0, y, 68.0, row_height - 4.0],
+                Action::FilesOps(index),
+            ));
             if y < top || y + row_height - 4.0 > bottom {
                 continue;
             }

@@ -11,6 +11,8 @@ mod gesture;
 mod login;
 #[path = "launcher_pages.rs"]
 mod pages;
+#[path = "launcher_skin.rs"]
+mod skin;
 #[path = "wardrobe.rs"]
 mod wardrobe;
 use horizon_client::{
