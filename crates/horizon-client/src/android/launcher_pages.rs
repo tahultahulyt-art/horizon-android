@@ -847,7 +847,20 @@ impl Launcher {
                 }
             }
         } else {
-            let touch_pct = self.touch_look_percent();
+            let touch_pct = {
+                if self.touch_look_cache.is_none() {
+                    let path = self
+                        .catalog
+                        .config
+                        .game_home(&self.home)
+                        .join("horizon-touch.json");
+                    let sensitivity =
+                        horizon_client::touch::Settings::load_from(&path).sensitivity;
+                    self.touch_look_cache =
+                        Some((sensitivity * 100.0).round().clamp(10.0, 1000.0) as u32);
+                }
+                self.touch_look_cache.unwrap()
+            };
             let c = &self.catalog.config;
             ui.text(
                 Face::Medium,
