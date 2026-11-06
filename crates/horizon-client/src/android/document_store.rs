@@ -219,7 +219,9 @@ pub fn children(home: &Path, id: &str) -> io::Result<Vec<Value>> {
         let entry = entry?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        if doc.configuration && !CONFIG_FILES.contains(&name) {
+        if (doc.configuration && !CONFIG_FILES.contains(&name))
+            || (doc.reports && !shareable_report(name))
+        {
             continue;
         }
         if component(name).is_err() || entry.file_type()?.is_symlink() {
@@ -383,7 +385,6 @@ fn rename_new(source: &Path, target: &Path) -> io::Result<()> {
     Ok(())
 }
 
-
 // ---- In-launcher file manager ---------------------------------------------
 // The manager browses and mutates the same allowlisted tree through these
 // typed wrappers. The SAF surface above keeps DocumentsContract semantics.
@@ -459,7 +460,9 @@ pub fn list(home: &Path, id: &str) -> io::Result<Vec<Entry>> {
         let item = item?;
         let name = item.file_name();
         let Some(name) = name.to_str() else { continue };
-        if doc.configuration && !CONFIG_FILES.contains(&name) {
+        if (doc.configuration && !CONFIG_FILES.contains(&name))
+            || (doc.reports && !shareable_report(name))
+        {
             continue;
         }
         if component(name).is_err() || item.file_type()?.is_symlink() {
@@ -648,7 +651,10 @@ fn copy_path(source: &Path, target: &Path, progress: &mut dyn FnMut(u64)) -> io:
         Ok(())
     } else {
         let input = File::open(source)?;
-        let output = OpenOptions::new().write(true).create_new(true).open(target)?;
+        let output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)?;
         copy_stream(input, output, MAX_EXTRACT_BYTES, progress)?;
         Ok(())
     }
@@ -698,9 +704,7 @@ pub fn extract_zip(
     fs::create_dir(&base)?;
     let result = crate::content_files::extract(&src.path, &base, cancelled, progress);
     match result {
-        Ok(()) => {
-            Ok(folder)
-        }
+        Ok(()) => Ok(folder),
         Err(error) => {
             let _ = delete_path(&base);
             Err(io::Error::new(ErrorKind::InvalidData, error.to_string()))
@@ -835,5 +839,93 @@ mod world_tests {
         assert!(config_blocked);
         assert!(open(&home, "p0/worlds/Example/level.dat", "r").is_ok());
         fs::remove_dir_all(home).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod manager_tests {
+    use super::*;
+    #[test]
+    fn manager_mutations_and_report_filtering() {
+        use std::io::Write;
+        let home = std::env::temp_dir().join(format!(
+            "horizon-manager-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&home).unwrap();
+        assert_eq!(list(&home, ROOT).unwrap().len(), 6);
+        make_dir(&home, "p0/mods", "destination").unwrap();
+        fs::write(home.join("horizon-mods/test.txt"), b"original").unwrap();
+        let copied = copy_into(
+            &home,
+            "p0/mods/test.txt",
+            "p0/mods/destination",
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(copied, "test.txt");
+        assert!(
+            copy_into(
+                &home,
+                "p0/mods/destination",
+                "p0/mods/destination",
+                &mut |_| {}
+            )
+            .is_err()
+        );
+        let renamed = rename_entry(&home, "p0/mods/destination/test.txt", "renamed.txt").unwrap();
+        let moved = move_into(&home, &renamed, "p0/mods").unwrap();
+        assert_eq!(moved, "renamed.txt");
+        assert_eq!(
+            fs::read(home.join("horizon-mods/renamed.txt")).unwrap(),
+            b"original"
+        );
+        delete_tree(&home, "p0/mods/destination").unwrap();
+        assert!(!home.join("horizon-mods/destination").exists());
+        assert!(delete_tree(&home, "p0/mods").is_err());
+        fs::write(home.join("performance/current-session.json"), b"private").unwrap();
+        fs::write(home.join("performance/result.jsonl"), b"{}").unwrap();
+        let reports = list(&home, "reports").unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].name, "result.jsonl");
+        let archive = home.join("horizon-mods/archive.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
+        zip.start_file("nested/test.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"extracted").unwrap();
+        zip.finish().unwrap();
+        let folder = extract_zip(
+            &home,
+            "p0/mods/archive.zip",
+            "p0/mods",
+            &|| false,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(
+                home.join("horizon-mods")
+                    .join(folder)
+                    .join("nested/test.txt")
+            )
+            .unwrap(),
+            b"extracted"
+        );
+        assert!(
+            extract_zip(
+                &home,
+                "p0/mods/archive.zip",
+                "p0/mods",
+                &|| true,
+                &mut |_| {}
+            )
+            .is_err()
+        );
+        assert!(!home.join("horizon-mods/archive (1)").exists());
+        fs::remove_dir_all(&home).unwrap();
     }
 }
