@@ -81,6 +81,20 @@ pub(super) enum Action {
     ToggleBundled(&'static str),
     WorldFiles,
     GameFiles,
+    FilesUp,
+    FilesOpen(usize),
+    FilesOps(usize),
+    FilesNewFolder,
+    FilesImport,
+    FilesPaste,
+    FilesReveal,
+    FilesRefresh,
+    FilesRename,
+    FilesCopy,
+    FilesCut,
+    FilesExtract,
+    FilesDeleteAsk,
+    FilesDeleteConfirm,
     WorkerLimit,
     ChooseWorkerLimit(u32),
     PerformanceHints,
@@ -290,7 +304,7 @@ impl Launcher {
                 [x, 88.0, tab_width - 4.0, 42.0],
                 if w < 700.0 {
                     match page {
-                        Page::Installed => "Files",
+                        Page::Installed => "Added",
                         Page::Settings => "Setup",
                         _ => page.name(),
                     }
@@ -846,6 +860,15 @@ impl Launcher {
                     );
                 }
             }
+        } else if page == Page::Files {
+            let view = self.files.draw(
+                &mut ui,
+                &mut self.targets,
+                &mut self.list_targets,
+                self.catalog.scroll,
+            );
+            self.list_view = Some(view);
+            self.catalog.scroll = self.catalog.scroll.clamp(0.0, view[2]);
         } else {
             let touch_pct = {
                 if self.touch_look_cache.is_none() {
@@ -1306,7 +1329,7 @@ impl Launcher {
                 (*x..*x + *w).contains(&p[0]) && (*y..*y + *h).contains(&p[1])
             })
             .map(|(_, a)| *a);
-        if self.catalog.busy() || crate::documents::busy() {
+        if self.catalog.busy() || crate::documents::busy() || self.files.busy() {
             return Ok(());
         }
         self.feedback = action.map(|action| (action, std::time::Instant::now()));
@@ -1388,6 +1411,96 @@ impl Launcher {
                 self.catalog.status = if crate::platform::open_documents(&id) {
                     "Copy a complete world folder to back up or import. Finish copying before Play; never replace an existing world silently."
                 } else { "Open system Files > Horizon Android > Worlds. Copy complete world folders while the game is closed." }.into();
+            }
+            Some(Action::FilesUp) => {
+                self.catalog.status = self.files.up(&self.home).unwrap_or_default();
+                self.catalog.scroll = 0.0;
+                self.focus = None;
+            }
+            Some(Action::FilesOpen(i)) => {
+                self.catalog.status = self.files.open_entry(&self.home, i).unwrap_or_default();
+                self.catalog.scroll = 0.0;
+                self.chooser = None;
+                self.focus = None;
+            }
+            Some(Action::FilesOps(i)) => {
+                if let Some(chooser) = self.files.ops(i) {
+                    self.chooser = Some(chooser);
+                    self.focus = None;
+                }
+            }
+            Some(Action::FilesNewFolder) => {
+                self.files.begin_new_folder();
+                self.catalog.editing = Some("files_name");
+                crate::platform::show("");
+            }
+            Some(Action::FilesRename) => {
+                if let Some(name) = self.files.begin_rename() {
+                    self.chooser = None;
+                    self.catalog.editing = Some("files_name");
+                    crate::platform::show(&name);
+                }
+            }
+            Some(Action::FilesCopy) => {
+                self.catalog.status = self.files.remember(false).unwrap_or_default();
+                self.chooser = None;
+            }
+            Some(Action::FilesCut) => {
+                self.catalog.status = self.files.remember(true).unwrap_or_default();
+                self.chooser = None;
+            }
+            Some(Action::FilesPaste) => {
+                self.catalog.status = self
+                    .files
+                    .paste(self.home.clone())
+                    .unwrap_or_else(|| "Copy or move an item first.".into());
+            }
+            Some(Action::FilesExtract) => {
+                self.catalog.status = self.files.extract(self.home.clone()).unwrap_or_default();
+                self.chooser = None;
+            }
+            Some(Action::FilesDeleteAsk) => {
+                if let Some(name) = self.files.picked_name() {
+                    self.chooser = Some(chooser::Chooser::custom(
+                        "Delete this item?",
+                        "This removes it from Horizon's folders permanently. This cannot be undone.",
+                        Some(name),
+                        vec![
+                            (
+                                "Delete forever".into(),
+                                String::new(),
+                                Action::FilesDeleteConfirm,
+                                false,
+                            ),
+                            ("Cancel".into(), String::new(), Action::Dismiss, true),
+                        ],
+                    ));
+                }
+            }
+            Some(Action::FilesDeleteConfirm) => {
+                self.catalog.status = self.files.delete(self.home.clone()).unwrap_or_default();
+                self.chooser = None;
+            }
+            Some(Action::FilesImport) => {
+                crate::platform::hide();
+                if let Err(e) =
+                    crate::documents::begin_into(self.home.clone(), self.files.cwd.clone())
+                {
+                    self.catalog.status = e;
+                }
+            }
+            Some(Action::FilesReveal) => {
+                self.catalog.status = if crate::platform::open_documents(&self.files.cwd) {
+                    "Opened in system Files. Return here after copying files.".into()
+                } else {
+                    "Open the system Files app and choose Horizon Android.".into()
+                };
+            }
+            Some(Action::FilesRefresh) => {
+                self.catalog.status = match self.files.refresh(&self.home) {
+                    Ok(()) => "Folder refreshed.".into(),
+                    Err(error) => error,
+                };
             }
             Some(Action::WorkerLimit) => self.open_chooser(chooser::Kind::WorkerLimit),
             Some(Action::ChooseWorkerLimit(limit)) => {
@@ -1592,6 +1705,10 @@ impl Launcher {
             Some(Action::LoginLink) => self.login.open_link(),
             Some(Action::Page(page)) => {
                 self.touch_look_cache = None;
+                self.files.cancel_edit();
+                if page == Page::Files {
+                    self.catalog.status = self.files.open(&self.home).unwrap_or_default();
+                }
                 if page == Page::Skins {
                     self.wardrobe.open(
                         &self.catalog.config.name,

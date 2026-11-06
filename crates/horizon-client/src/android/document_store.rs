@@ -383,6 +383,341 @@ fn rename_new(source: &Path, target: &Path) -> io::Result<()> {
     Ok(())
 }
 
+
+// ---- In-launcher file manager ---------------------------------------------
+// The manager browses and mutates the same allowlisted tree through these
+// typed wrappers. The SAF surface above keeps DocumentsContract semantics.
+
+/// One row of the in-launcher file manager.
+pub struct Entry {
+    pub id: String,
+    pub name: String,
+    pub dir: bool,
+    pub size: u64,
+    pub modified_ms: i64,
+    /// Fixed rows (roots, reports, configuration files) cannot be renamed,
+    /// moved or deleted, but folders among them can still be browsed.
+    pub fixed: bool,
+}
+
+fn entry(home: &Path, id: &str) -> io::Result<Entry> {
+    let doc = resolve(home, id)?;
+    let meta = fs::symlink_metadata(&doc.path)?;
+    if !meta.is_dir() && !meta.is_file() {
+        return Err(invalid());
+    }
+    let name = doc.label.map(str::to_owned).unwrap_or_else(|| {
+        doc.path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    });
+    Ok(Entry {
+        id: id.to_owned(),
+        name,
+        dir: meta.is_dir(),
+        size: meta.len(),
+        modified_ms: meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|t| t.as_millis().min(i64::MAX as u128) as i64)
+            .unwrap_or(0),
+        fixed: doc.label.is_some() || doc.reports || doc.configuration,
+    })
+}
+
+/// Typed listing shared with the SAF `children` shape: same filters and order.
+pub fn list(home: &Path, id: &str) -> io::Result<Vec<Entry>> {
+    if id == ROOT {
+        return [
+            "mods",
+            "packs",
+            "shaders",
+            "worlds",
+            "configuration",
+            "reports",
+        ]
+        .iter()
+        .map(|folder| entry(home, &folder_id(profile(home), folder)))
+        .collect();
+    }
+    world_access(id)?;
+    let doc = resolve(home, id)?;
+    if !fs::symlink_metadata(&doc.path)?.is_dir() {
+        return Err(invalid());
+    }
+    let mut result = Vec::new();
+    for (index, item) in fs::read_dir(&doc.path)?.enumerate() {
+        if index == MAX_CHILDREN {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "Too many files in one folder to list safely",
+            ));
+        }
+        let item = item?;
+        let name = item.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if doc.configuration && !CONFIG_FILES.contains(&name) {
+            continue;
+        }
+        if component(name).is_err() || item.file_type()?.is_symlink() {
+            continue;
+        }
+        result.push(entry(home, &format!("{id}/{name}"))?);
+    }
+    result.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.cmp(&b.name)));
+    Ok(result)
+}
+
+/// Folders the manager may create, paste or extract into.
+pub fn writable_dir(home: &Path, id: &str) -> io::Result<()> {
+    world_access(id)?;
+    let doc = resolve(home, id)?;
+    if doc.reports || doc.configuration || !doc.path.is_dir() {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+/// Parent document id for the manager's Up button.
+pub fn parent_id(id: &str) -> Option<String> {
+    if id == ROOT {
+        return None;
+    }
+    // "reports" and p<profile>/<folder> sit directly under the root.
+    match id.rsplit_once('/') {
+        None => Some(ROOT.into()),
+        Some((parent, _)) if parent == "reports" || !parent.contains('/') => Some(ROOT.into()),
+        Some((parent, _)) => Some(parent.to_owned()),
+    }
+}
+
+/// A mutable (non-fixed) entry.
+fn mutable(home: &Path, id: &str) -> io::Result<Document> {
+    world_access(id)?;
+    let doc = resolve(home, id)?;
+    if doc.label.is_some() || doc.reports || doc.configuration {
+        return Err(invalid());
+    }
+    Ok(doc)
+}
+
+fn mark_changed() {
+    super::document_provider::mark_changed();
+}
+
+/// Resolve the path of a not-yet-created child for staged imports.
+pub fn child_path(home: &Path, parent: &str, name: &str) -> io::Result<PathBuf> {
+    writable_dir(home, parent)?;
+    component(name)?;
+    let child = format!("{parent}/{name}");
+    Ok(resolve(home, &child)?.path)
+}
+
+/// First `name (n)` variant that does not exist yet under the parent.
+pub fn unique_child(home: &Path, parent: &str, name: &str) -> io::Result<String> {
+    component(name)?;
+    if !child_path(home, parent, name)?.exists() {
+        return Ok(name.to_owned());
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (name, String::new()),
+    };
+    for i in 1..=10000u32 {
+        let suffix = format!(" ({i}){ext}");
+        let keep = 240usize.saturating_sub(suffix.len());
+        let mut short: String = stem.chars().take(keep).collect();
+        while short.len() > keep {
+            short.pop();
+        }
+        let candidate = format!("{short}{suffix}");
+        if component(&candidate).is_ok() && !child_path(home, parent, &candidate)?.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(io::Error::new(
+        ErrorKind::AlreadyExists,
+        "Too many filename conflicts",
+    ))
+}
+
+pub fn make_dir(home: &Path, parent: &str, name: &str) -> io::Result<()> {
+    let target = child_path(home, parent, name)?;
+    fs::create_dir(&target)?;
+    mark_changed();
+    Ok(())
+}
+
+/// Rename a file or folder; never overwrites an existing name.
+pub fn rename_entry(home: &Path, id: &str, name: &str) -> io::Result<String> {
+    let doc = mutable(home, id)?;
+    component(name)?;
+    let (parent, _) = id.rsplit_once('/').ok_or_else(invalid)?;
+    let child = format!("{parent}/{name}");
+    let target = resolve(home, &child)?;
+    if target.path.try_exists()? {
+        return Err(io::Error::from(ErrorKind::AlreadyExists));
+    }
+    if doc.path.is_file() {
+        rename_new(&doc.path, &target.path)?;
+    } else {
+        fs::rename(&doc.path, &target.path)?;
+    }
+    mark_changed();
+    Ok(child)
+}
+
+/// Recursive delete that never follows symbolic links.
+pub fn delete_tree(home: &Path, id: &str) -> io::Result<()> {
+    let doc = mutable(home, id)?;
+    delete_path(&doc.path)?;
+    mark_changed();
+    Ok(())
+}
+
+fn delete_path(path: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    if meta.is_dir() && !meta.file_type().is_symlink() {
+        for item in fs::read_dir(path)? {
+            delete_path(&item?.path())?;
+        }
+        fs::remove_dir(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
+const MAX_EXTRACT_BYTES: u64 = 4 << 30;
+
+fn copy_stream(
+    mut read: impl io::Read,
+    mut write: impl io::Write,
+    limit: u64,
+    progress: &mut dyn FnMut(u64),
+) -> io::Result<u64> {
+    let mut total = 0u64;
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = io::Read::read(&mut read, &mut buffer)?;
+        if n == 0 {
+            return Ok(total);
+        }
+        total += n as u64;
+        if total > limit {
+            return Err(io::Error::new(ErrorKind::InvalidData, "File is too large"));
+        }
+        io::Write::write_all(&mut write, &buffer[..n])?;
+        progress(total);
+    }
+}
+
+/// Copy a file or folder into a writable folder. The source may be read-only
+/// (reports, configuration); the destination may not sit inside the source.
+pub fn copy_into(
+    home: &Path,
+    source: &str,
+    destination: &str,
+    progress: &mut dyn FnMut(u64),
+) -> io::Result<String> {
+    world_access(source)?;
+    let src = resolve(home, source)?;
+    if src.label.is_some() {
+        return Err(invalid());
+    }
+    writable_dir(home, destination)?;
+    let dst = resolve(home, destination)?;
+    if dst.path.starts_with(&src.path) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "Cannot copy a folder into itself",
+        ));
+    }
+    let name = unique_child(home, destination, &entry(home, source)?.name)?;
+    let target = child_path(home, destination, &name)?;
+    copy_path(&src.path, &target, progress)?;
+    mark_changed();
+    Ok(name)
+}
+
+fn copy_path(source: &Path, target: &Path, progress: &mut dyn FnMut(u64)) -> io::Result<()> {
+    let meta = fs::symlink_metadata(source)?;
+    if meta.file_type().is_symlink() {
+        return Ok(());
+    }
+    if meta.is_dir() {
+        fs::create_dir(target)?;
+        for item in fs::read_dir(source)? {
+            let item = item?;
+            copy_path(&item.path(), &target.join(item.file_name()), progress)?;
+        }
+        Ok(())
+    } else {
+        let input = File::open(source)?;
+        let output = OpenOptions::new().write(true).create_new(true).open(target)?;
+        copy_stream(input, output, MAX_EXTRACT_BYTES, progress)?;
+        Ok(())
+    }
+}
+
+/// Move a file or folder into another writable folder on the same volume.
+pub fn move_into(home: &Path, source: &str, destination: &str) -> io::Result<String> {
+    let src = mutable(home, source)?;
+    writable_dir(home, destination)?;
+    let dst = resolve(home, destination)?;
+    if dst.path.starts_with(&src.path) {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "Cannot move a folder into itself",
+        ));
+    }
+    let name = unique_child(home, destination, &entry(home, source)?.name)?;
+    let target = child_path(home, destination, &name)?;
+    fs::rename(&src.path, &target)?;
+    mark_changed();
+    Ok(name)
+}
+
+/// Extract a ZIP into a new folder named after the archive. Returns the
+/// created folder name. Path safety and size caps live in content_files.
+pub fn extract_zip(
+    home: &Path,
+    archive: &str,
+    destination: &str,
+    cancelled: &dyn Fn() -> bool,
+    progress: &mut dyn FnMut(u64),
+) -> io::Result<String> {
+    world_access(archive)?;
+    let src = resolve(home, archive)?;
+    if !src.path.is_file() {
+        return Err(invalid());
+    }
+    writable_dir(home, destination)?;
+    let stem = src
+        .path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| component(s).is_ok())
+        .unwrap_or("extracted")
+        .to_owned();
+    let folder = unique_child(home, destination, &stem)?;
+    let base = child_path(home, destination, &folder)?;
+    fs::create_dir(&base)?;
+    let result = horizon_client::content_files::extract(&src.path, &base, cancelled, progress);
+    match result {
+        Ok(()) => {
+            mark_changed();
+            Ok(folder)
+        }
+        Err(error) => {
+            let _ = delete_path(&base);
+            Err(io::Error::new(ErrorKind::InvalidData, error.to_string()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

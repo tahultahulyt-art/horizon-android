@@ -28,6 +28,12 @@ fn failure(env: &mut JNIEnv<'_>, message: &str) {
     let _ = env.throw_new("java/io/FileNotFoundException", message);
 }
 
+
+/// The in-launcher file manager mutates the same tree; flag content reloads.
+pub(crate) fn mark_changed() {
+    CHANGED.store(true, Ordering::Relaxed);
+}
+
 #[unsafe(no_mangle)]
 extern "system" fn Java_dev_horizon_android_HorizonDocumentsProvider_nativeCall(
     mut env: JNIEnv<'_>,

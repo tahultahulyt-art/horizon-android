@@ -23,11 +23,14 @@ struct Request {
     appearance: Option<crate::skins::library::Kind>,
     home: PathBuf,
     cache: PathBuf,
+    /// File manager imports: any file type into this managed folder.
+    dest: Option<String>,
 }
 struct Conflict {
     kind: Kind,
     staged: PathBuf,
     target: PathBuf,
+    plain: bool,
 }
 #[derive(Clone)]
 pub struct Notice {
@@ -120,12 +123,38 @@ pub fn begin(kind: Kind, home: PathBuf) -> std::result::Result<(), String> {
         appearance: None,
         home,
         cache,
+        dest: None,
     });
     if !crate::native_ime::pick_document() {
         picker_failed("Android document picker is unavailable");
         return Err("Android document picker is unavailable".into());
     }
     notice(format!("Choose a {} file", kind.label()), false);
+    Ok(())
+}
+
+/// File manager import: accept any file into the given managed folder.
+pub fn begin_into(home: PathBuf, dest: String) -> std::result::Result<(), String> {
+    if busy() {
+        return Err("Finish or cancel the current import first".into());
+    }
+    CANCEL.store(false, Ordering::Relaxed);
+    crate::platform::hide();
+    let cache = crate::platform::cache_dir()
+        .ok_or("Could not access the Android import cache")?
+        .join("content-imports");
+    STATE.lock().unwrap_or_else(|e| e.into_inner()).request = Some(Request {
+        kind: Kind::Packs,
+        appearance: None,
+        home,
+        cache,
+        dest: Some(dest),
+    });
+    if !crate::native_ime::pick_document() {
+        picker_failed("Android document picker is unavailable");
+        return Err("Android document picker is unavailable".into());
+    }
+    notice("Choose a file to import", false);
     Ok(())
 }
 pub fn picker_failed(error: &str) {
@@ -149,6 +178,7 @@ pub fn begin_appearance(
         appearance: Some(kind),
         home,
         cache,
+        dest: None,
     });
     if !crate::native_ime::pick_document() {
         picker_failed("Android document picker is unavailable");
@@ -276,15 +306,41 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
             .write(true)
             .create_new(true)
             .open(&staged)?;
+        let label = if request.dest.is_some() {
+            "file"
+        } else {
+            request.kind.label()
+        };
         content_files::copy_bounded(&mut input, &mut output, |bytes| {
-            notice(
-                format!("Importing {}: {} KiB", request.kind.label(), bytes / 1024),
-                false,
-            );
+            notice(format!("Importing {label}: {} KiB", bytes / 1024), false);
             !CANCEL.load(Ordering::Relaxed)
         })?;
         output.sync_all()?;
         drop(output);
+        if let Some(dest) = request.dest.clone() {
+            if !content_files::plain_name(&name) {
+                return Err("That filename is not allowed".into());
+            }
+            let target = crate::document_store::child_path(&request.home, &dest, &name)
+                .map_err(|e| e.to_string())?;
+            if target.exists() {
+                STATE.lock().unwrap_or_else(|e| e.into_inner()).conflict = Some(Conflict {
+                    kind: request.kind,
+                    staged: staged.clone(),
+                    target,
+                    plain: true,
+                });
+                notice(
+                    "File already exists: choose Keep both, Replace or Cancel",
+                    false,
+                );
+            } else {
+                std::fs::rename(&staged, &target)?;
+                crate::document_provider::mark_changed();
+                notice(format!("Imported {name}."), true);
+            }
+            return Ok(());
+        }
         notice("Checking archive...", false);
         let native_shader = content_files::validate(&staged, request.kind, &name, || {
             CANCEL.load(Ordering::Relaxed)
@@ -312,6 +368,7 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
                 kind: request.kind,
                 staged: staged.clone(),
                 target,
+                plain: false,
             });
             notice(
                 "File already exists: choose Keep both, Replace or Cancel",
@@ -357,7 +414,7 @@ pub fn resolve(choice: Choice) {
             return Err("Cannot replace a folder or symbolic link".into());
         }
         if matches!(choice, Choice::KeepBoth) {
-            if c.kind == Kind::Mods {
+            if c.kind == Kind::Mods && !c.plain {
                 return Err(
                     "A mod ID cannot be installed twice; choose Replace to update it".into(),
                 );
@@ -397,10 +454,17 @@ pub fn resolve(choice: Choice) {
         Ok(())
     })();
     match result {
-        Ok(()) => imported(
-            "Import completed. Enable it in Installed or game settings.",
-            c.kind,
-        ),
+        Ok(()) => {
+            if c.plain {
+                crate::document_provider::mark_changed();
+                notice("Import completed.", true);
+            } else {
+                imported(
+                    "Import completed. Enable it in Installed or game settings.",
+                    c.kind,
+                );
+            }
+        }
         Err(e) => {
             let _ = std::fs::remove_file(c.staged);
             notice(format!("Import failed: {e}"), false);

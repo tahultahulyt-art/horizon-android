@@ -285,6 +285,21 @@ impl Launcher {
     }
 }
 impl Chooser {
+    /// Free-form option list (file manager row actions, delete confirmations).
+    pub(super) fn custom(
+        title: &'static str,
+        help: &'static str,
+        detail: Option<String>,
+        choices: Vec<(String, String, Action, bool)>,
+    ) -> Self {
+        Self {
+            title,
+            help,
+            device: detail,
+            choices,
+            scroll: 0.0,
+        }
+    }
     pub(super) fn confirm_delete(name: String) -> Self {
         Self {
             title: "Remove add-on?",

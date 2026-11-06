@@ -190,6 +190,66 @@ pub fn copy_bounded(
     Ok(total)
 }
 
+/// Extract an archive into `base`, applying the same path-safety rules as
+/// pack validation. Existing files are never overwritten; the caller owns
+/// any partial-output cleanup after an error.
+pub fn extract(
+    archive: &Path,
+    base: &Path,
+    cancelled: impl Fn() -> bool,
+    mut progress: impl FnMut(u64),
+) -> crate::Result<()> {
+    let file = std::fs::File::open(archive)?;
+    if file.metadata()?.len() > MAX_INPUT {
+        return Err("Archive exceeds 256 MiB".into());
+    }
+    let mut zip = zip::ZipArchive::new(file)?;
+    if zip.len() > 32768 {
+        return Err("Archive contains too many files".into());
+    }
+    let mut total = 0u64;
+    let mut names = HashSet::new();
+    for i in 0..zip.len() {
+        if cancelled() {
+            return Err("Extract cancelled".into());
+        }
+        let mut entry = zip.by_index(i)?;
+        let raw = entry.name()?.into_owned();
+        if raw.is_empty()
+            || raw.len() > 1024
+            || raw.chars().any(char::is_control)
+            || raw.contains(['\\', ':', '\0'])
+            || raw.starts_with('/')
+            || raw.split('/').any(|p| p == ".." || p == ".")
+            || !names.insert(raw.clone())
+            || entry.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000)
+        {
+            return Err("Archive contains an unsafe or duplicate path".into());
+        }
+        let out = base.join(Path::new(&raw));
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out)?;
+            continue;
+        }
+        total = total.saturating_add(entry.size());
+        if total > MAX_EXPANDED {
+            return Err("Archive expands beyond 512 MiB".into());
+        }
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut target = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&out)?;
+        copy_bounded(&mut entry, &mut target, |bytes| {
+            progress(bytes);
+            !cancelled()
+        })?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

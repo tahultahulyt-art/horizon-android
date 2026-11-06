@@ -3,6 +3,8 @@ use crate::catalog::{Catalog, Page};
 use crate::game;
 #[path = "chooser.rs"]
 mod chooser;
+#[path = "file_manager.rs"]
+mod files;
 #[path = "launcher_gesture.rs"]
 mod gesture;
 #[path = "login.rs"]
@@ -65,6 +67,7 @@ pub(super) struct Launcher {
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
     touch_look_cache: Option<u32>,
+    files: files::Files,
 }
 
 impl Launcher {
@@ -79,6 +82,14 @@ impl Launcher {
     }
 
     fn edit_text(&mut self, output: horizon_client::osk::Output) {
+        if self.files.editing() {
+            if let Some(status) = self.files.edit(&output, &self.home) {
+                self.catalog.status = status;
+                self.catalog.editing = None;
+                crate::platform::hide();
+            }
+            return;
+        }
         if self.login.edit(self.catalog.editing, &output) {
             if matches!(
                 output,
@@ -117,6 +128,7 @@ impl Launcher {
         crate::device_runtime::configure(catalog.config.device);
         Self {
             wardrobe: wardrobe::Wardrobe::new(&home),
+            files: files::Files::new(),
             home,
             controller_edges: Default::default(),
             controller_repeat: None,
@@ -253,13 +265,21 @@ impl Launcher {
 
     fn request_back(&mut self) {
         crate::platform::hide();
+        if self.files.editing() {
+            self.files.cancel_edit();
+            self.catalog.editing = None;
+        }
         if self.exit_confirmation {
             self.exit_confirmation = false;
         } else if self.login.visible {
             self.login.hide();
         } else if self.chooser.take().is_some() {
             // Back dismisses the current dialog, including the exit question.
-        } else if self.catalog.editing.take().is_none() {
+        } else if self.catalog.editing.take().is_some() {
+            // Back closed the active text editor.
+        } else if self.catalog.page == Page::Files && !self.files.at_root() {
+            let _ = self.files.up(&self.home);
+        } else {
             self.exit_confirmation = true;
         }
         self.focus = None;
@@ -646,8 +666,15 @@ impl ApplicationHandler for Launcher {
             self.catalog.status = notice.text;
             if notice.changed {
                 self.catalog.refresh(&self.home);
-                self.catalog.show_installed(notice.kind);
+                if self.catalog.page == Page::Files {
+                    let _ = self.files.refresh(&self.home);
+                } else {
+                    self.catalog.show_installed(notice.kind);
+                }
             }
+        }
+        if let Some(status) = self.files.poll(&self.home) {
+            self.catalog.status = status;
         }
         for result in crate::gallery::poll() {
             self.catalog.status = result.unwrap_or_else(|e| format!("File export failed: {e}"));

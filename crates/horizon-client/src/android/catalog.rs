@@ -169,16 +169,18 @@ pub enum Page {
     Packs,
     Shaders,
     Installed,
+    Files,
     Settings,
     Skins,
 }
 impl Page {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Play,
         Self::Mods,
         Self::Packs,
         Self::Shaders,
         Self::Installed,
+        Self::Files,
         Self::Settings,
         Self::Skins,
     ];
@@ -189,6 +191,7 @@ impl Page {
             Self::Packs => "Packs",
             Self::Shaders => "Shaders",
             Self::Installed => "Installed",
+            Self::Files => "Files",
             Self::Settings => "Settings",
             Self::Skins => "Skins",
         }
