@@ -314,6 +314,7 @@ impl Files {
                 };
                 let status = match result {
                     Ok(status) => {
+                        crate::document_provider::mark_changed();
                         let _ = self.refresh(home);
                         status
                     }
@@ -351,6 +352,7 @@ impl Files {
                 .map_err(|e| e.to_string())?
             };
             let _ = cancel;
+            crate::document_provider::mark_changed();
             Ok(format!(
                 "{}d {name} here.",
                 if cut { "Move" } else { "Copie" }
@@ -379,6 +381,7 @@ impl Files {
                 },
             )
             .map_err(|e| e.to_string())?;
+            crate::document_provider::mark_changed();
             Ok(format!("Extracted into {folder}."))
         });
         Some("Extracting...".into())
@@ -394,6 +397,7 @@ impl Files {
         self.picked = None;
         self.spawn(move |_, _| {
             document_store::delete_tree(&home, &id).map_err(|e| e.to_string())?;
+            crate::document_provider::mark_changed();
             Ok(format!("Deleted {name}."))
         });
         Some("Deleting...".into())

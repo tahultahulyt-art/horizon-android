@@ -504,10 +504,6 @@ fn mutable(home: &Path, id: &str) -> io::Result<Document> {
     Ok(doc)
 }
 
-fn mark_changed() {
-    super::document_provider::mark_changed();
-}
-
 /// Resolve the path of a not-yet-created child for staged imports.
 pub fn child_path(home: &Path, parent: &str, name: &str) -> io::Result<PathBuf> {
     writable_dir(home, parent)?;
@@ -547,7 +543,6 @@ pub fn unique_child(home: &Path, parent: &str, name: &str) -> io::Result<String>
 pub fn make_dir(home: &Path, parent: &str, name: &str) -> io::Result<()> {
     let target = child_path(home, parent, name)?;
     fs::create_dir(&target)?;
-    mark_changed();
     Ok(())
 }
 
@@ -566,7 +561,6 @@ pub fn rename_entry(home: &Path, id: &str, name: &str) -> io::Result<String> {
     } else {
         fs::rename(&doc.path, &target.path)?;
     }
-    mark_changed();
     Ok(child)
 }
 
@@ -574,7 +568,6 @@ pub fn rename_entry(home: &Path, id: &str, name: &str) -> io::Result<String> {
 pub fn delete_tree(home: &Path, id: &str) -> io::Result<()> {
     let doc = mutable(home, id)?;
     delete_path(&doc.path)?;
-    mark_changed();
     Ok(())
 }
 
@@ -638,7 +631,6 @@ pub fn copy_into(
     let name = unique_child(home, destination, &entry(home, source)?.name)?;
     let target = child_path(home, destination, &name)?;
     copy_path(&src.path, &target, progress)?;
-    mark_changed();
     Ok(name)
 }
 
@@ -676,7 +668,6 @@ pub fn move_into(home: &Path, source: &str, destination: &str) -> io::Result<Str
     let name = unique_child(home, destination, &entry(home, source)?.name)?;
     let target = child_path(home, destination, &name)?;
     fs::rename(&src.path, &target)?;
-    mark_changed();
     Ok(name)
 }
 
@@ -705,10 +696,9 @@ pub fn extract_zip(
     let folder = unique_child(home, destination, &stem)?;
     let base = child_path(home, destination, &folder)?;
     fs::create_dir(&base)?;
-    let result = horizon_client::content_files::extract(&src.path, &base, cancelled, progress);
+    let result = crate::content_files::extract(&src.path, &base, cancelled, progress);
     match result {
         Ok(()) => {
-            mark_changed();
             Ok(folder)
         }
         Err(error) => {

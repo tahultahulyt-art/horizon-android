@@ -1,6 +1,9 @@
 //! Android's native entry point. The simulation and renderer are shared with desktop.
 #![cfg(target_os = "android")]
 
+// Content porting helpers reused by the file manager's ZIP import.
+use horizon_client::content_files;
+
 #[allow(dead_code, clippy::collapsible_match)]
 // Shared vanilla match structure and desktop harnesses.
 mod game;
