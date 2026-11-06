@@ -64,6 +64,7 @@ pub(super) struct Launcher {
     prepared_session: Option<PathBuf>,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    touch_look_cache: Option<u32>,
 }
 
 impl Launcher {
@@ -90,6 +91,21 @@ impl Launcher {
             self.catalog.edit(output, &self.home);
         }
     }
+    pub(super) fn touch_look_percent(&mut self) -> u32 {
+        if let Some(percent) = self.touch_look_cache {
+            return percent;
+        }
+        let path = self
+            .catalog
+            .config
+            .game_home(&self.home)
+            .join("horizon-touch.json");
+        let sensitivity = horizon_client::touch::Settings::load_from(&path).sensitivity;
+        let percent = (sensitivity * 100.0).round().clamp(10.0, 1000.0) as u32;
+        self.touch_look_cache = Some(percent);
+        percent
+    }
+
     pub(super) fn new(home: PathBuf) -> Self {
         // Upgrade existing installations that retained the old download cache.
         let cleanup_home = home.clone();
@@ -144,6 +160,7 @@ impl Launcher {
             prepared_session: None,
             focus: None,
             diagnostic_export: None,
+            touch_look_cache: None,
         }
     }
 
@@ -151,6 +168,7 @@ impl Launcher {
         if !horizon_client::android_runtime::take_launcher_return() {
             return;
         }
+        self.touch_look_cache = None;
         if let Some(mut game) = self.game.take() {
             game.exiting(events);
             drop(game);

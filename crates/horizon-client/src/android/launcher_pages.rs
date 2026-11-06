@@ -64,6 +64,8 @@ pub(super) enum Action {
     Orientation,
     InputHost,
     ChooseInputHost(crate::catalog::InputHost),
+    TouchLook,
+    ChooseTouchLook(u32),
     ChooseOrientation(crate::catalog::Orientation),
     ChooseRenderer(crate::catalog::RendererMode),
     ChooseProfile(u32),
@@ -845,6 +847,7 @@ impl Launcher {
                 }
             }
         } else {
+            let touch_pct = self.touch_look_percent();
             let c = &self.catalog.config;
             ui.text(
                 Face::Medium,
@@ -858,11 +861,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -910,6 +913,11 @@ impl Launcher {
                     Action::Orientation,
                 ),
                 ("Input", c.input_host.label().to_owned(), Action::InputHost),
+                (
+                    "Controls",
+                    format!("Touch look speed: {touch_pct}%"),
+                    Action::TouchLook,
+                ),
                 (
                     "Immersive fullscreen",
                     if c.screen.immersive { "On" } else { "Off" }.into(),
@@ -1570,6 +1578,7 @@ impl Launcher {
             }
             Some(Action::LoginLink) => self.login.open_link(),
             Some(Action::Page(page)) => {
+                self.touch_look_cache = None;
                 if page == Page::Skins {
                     self.wardrobe.open(
                         &self.catalog.config.name,
@@ -1675,6 +1684,29 @@ impl Launcher {
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),
+            Some(Action::TouchLook) => self.open_chooser(chooser::Kind::TouchLook),
+            Some(Action::ChooseTouchLook(percent)) => {
+                let path = self
+                    .catalog
+                    .config
+                    .game_home(&self.home)
+                    .join("horizon-touch.json");
+                let mut touch = horizon_client::touch::Settings::load_from(&path);
+                touch.sensitivity = (percent as f32 / 100.0).clamp(0.1, 10.0);
+                let saved = if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).and_then(|()| touch.save_to(&path))
+                } else {
+                    touch.save_to(&path)
+                };
+                self.catalog.status = match saved {
+                    Ok(()) => format!(
+                        "Touch look speed set to {percent}%. Applies on next Play; fine tune in Options > Controls > Touch Controls."
+                    ),
+                    Err(error) => format!("Could not save touch controls: {error}"),
+                };
+                self.touch_look_cache = Some(percent);
+                self.chooser = None;
+            }
             Some(Action::ChooseInputHost(mode)) => {
                 self.catalog.config.input_host = mode;
                 self.catalog.config.save(&self.home)?;

@@ -16,6 +16,7 @@ pub(super) enum Kind {
     Profile,
     Orientation,
     InputHost,
+    TouchLook,
 }
 pub(super) struct Chooser {
     title: &'static str,
@@ -142,6 +143,32 @@ impl Launcher {
                     "Client resolution",
                     "Small screens retain a usable menu size.",
                     choices,
+                )
+            }
+            Kind::TouchLook => {
+                let current = horizon_client::touch::Settings::load_from(
+                    &c.game_home(&self.home).join("horizon-touch.json"),
+                )
+                .sensitivity;
+                let percent = (current * 100.0).round().clamp(10.0, 1000.0) as u32;
+                (
+                    "Touch look speed",
+                    "Camera speed when dragging to look around. Applies on next Play. Fine tune in Options > Controls > Touch Controls; the in-game sliders now reach 1000%.",
+                    [100u32, 200, 300, 500, 800, 1000]
+                        .into_iter()
+                        .map(|p| {
+                            (
+                                format!("{p}%"),
+                                match p {
+                                    100 => "Game default".into(),
+                                    300 => "Previous maximum".into(),
+                                    _ => String::new(),
+                                },
+                                Action::ChooseTouchLook(p),
+                                percent == p,
+                            )
+                        })
+                        .collect(),
                 )
             }
             Kind::InputHost => (
