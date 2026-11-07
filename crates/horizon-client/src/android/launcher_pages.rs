@@ -64,6 +64,10 @@ pub(super) enum Action {
     Orientation,
     InputHost,
     ChooseInputHost(crate::catalog::InputHost),
+    QuickControls,
+    TouchValue(chooser::TouchValue),
+    ChooseTouchValue(chooser::TouchValue, u32),
+    EditControls,
     TouchLook,
     ChooseTouchLook(u32),
     ChooseOrientation(crate::catalog::Orientation),
@@ -714,6 +718,11 @@ impl Launcher {
                 (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
+                (
+                    "Quick controls",
+                    format!("Touch sensitivity: {touch_pct}%"),
+                    Action::QuickControls,
+                ),
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
                 (
                     "Client resolution",
@@ -759,11 +768,6 @@ impl Launcher {
                     Action::Orientation,
                 ),
                 ("Input", c.input_host.label().to_owned(), Action::InputHost),
-                (
-                    "Controls",
-                    format!("Touch look speed: {touch_pct}%"),
-                    Action::TouchLook,
-                ),
                 (
                     "Immersive fullscreen",
                     if c.screen.immersive { "On" } else { "Off" }.into(),
@@ -1562,7 +1566,10 @@ impl Launcher {
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
             }
-            Some(Action::Play) => self.action(events)?,
+            Some(Action::Play) => {
+                self.edit_controls_launch = false;
+                self.action(events)?;
+            }
             Some(Action::WardrobeKind(cape)) => {
                 self.wardrobe.capes = cape;
                 self.catalog.scroll = 0.0;
@@ -1651,6 +1658,36 @@ impl Launcher {
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),
+            Some(Action::QuickControls) => self.open_chooser(chooser::Kind::QuickControls),
+            Some(Action::TouchValue(value)) => self.open_chooser(chooser::Kind::TouchValue(value)),
+            Some(Action::ChooseTouchValue(value, percent)) => {
+                let path = self
+                    .catalog
+                    .config
+                    .game_home(&self.home)
+                    .join("horizon-touch.json");
+                let mut touch = horizon_client::touch::Settings::load_from(&path);
+                value.apply(&mut touch, percent);
+                let saved = std::fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| touch.save_to(&path));
+                match saved {
+                    Ok(()) => {
+                        self.touch_look_cache = None;
+                        self.catalog.status = format!(
+                            "{} saved: {}",
+                            value.label(),
+                            value.value_label(value.current(&touch))
+                        );
+                    }
+                    Err(e) => self.catalog.status = format!("Could not save controls: {e}"),
+                }
+                self.open_chooser(chooser::Kind::QuickControls);
+            }
+            Some(Action::EditControls) => {
+                self.chooser = None;
+                self.edit_controls_launch = true;
+                self.action(events)?;
+            }
             Some(Action::TouchLook) => self.open_chooser(chooser::Kind::TouchLook),
             Some(Action::ChooseTouchLook(percent)) => {
                 let path = self

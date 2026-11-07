@@ -90,6 +90,8 @@ mod backend {
     }
 }
 
+pub(crate) static OPEN_TOUCH_EDITOR: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 use std::cell::RefCell;
 pub(crate) fn keyboard_mouse_input() -> bool {
     horizon_client::android_runtime::active_input() == catalog::InputHost::KeyboardMouse

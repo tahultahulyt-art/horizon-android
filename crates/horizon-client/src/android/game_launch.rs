@@ -8,6 +8,7 @@ pub(crate) struct LaunchRequest {
     pub session_file: Option<PathBuf>,
     pub offline_name: String,
     pub server: String,
+    pub edit_controls: bool,
     pub control_socket: Option<PathBuf>,
     pub extra_arguments: Vec<String>,
     pub open_gl: bool,
@@ -55,7 +56,11 @@ pub(crate) fn start(
     horizon_client::android_runtime::configure_graphics(request.open_gl);
     horizon_client::android_runtime::configure_gpu(request.gpu_batching);
     crate::game::android_reset_bundled_mods();
+    crate::OPEN_TOUCH_EDITOR.store(request.edit_controls, std::sync::atomic::Ordering::Release);
     let result = crate::game::android_game(request.arguments());
+    if result.is_err() {
+        crate::OPEN_TOUCH_EDITOR.store(false, std::sync::atomic::Ordering::Release);
+    }
     if result.is_err() {
         let _ = std::env::set_current_dir(previous);
     }
@@ -71,6 +76,7 @@ mod tests {
             session_file: None,
             offline_name: "Offline".into(),
             server: "example.test".into(),
+            edit_controls: false,
             control_socket: None,
             extra_arguments: vec![],
             open_gl: false,

@@ -19717,6 +19717,12 @@ fn start_game<'a>(
         game.options.no_pause = true;
     }
     game.apply_settings();
+    #[cfg(target_os = "android")]
+    if crate::OPEN_TOUCH_EDITOR.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        game.capture(false);
+        game.open_options_at(true, horizon_client::options_ui::Page::QuickControls);
+        game.pad.touch.open_editor();
+    }
     // Benchmarks measure the game alone.
     if game.options.benchmark.is_none() {
         game.mods.dev = game.options.dev_mods.clone();

@@ -69,6 +69,7 @@ pub(super) struct Launcher {
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
     touch_look_cache: Option<u32>,
+    edit_controls_launch: bool,
     files: files::Files,
 }
 
@@ -160,6 +161,7 @@ impl Launcher {
             focus: None,
             diagnostic_export: None,
             touch_look_cache: None,
+            edit_controls_launch: false,
         }
     }
 
@@ -168,6 +170,7 @@ impl Launcher {
             return;
         }
         self.touch_look_cache = None;
+        self.edit_controls_launch = false;
         if let Some(mut game) = self.game.take() {
             game.exiting(events);
             drop(game);
@@ -419,7 +422,12 @@ impl Launcher {
                 game_home,
                 session_file: self.prepared_session.take(),
                 offline_name: crate::catalog::truncate_player_name(&self.catalog.config.name),
-                server: self.catalog.config.server.clone(),
+                server: if self.edit_controls_launch {
+                    String::new()
+                } else {
+                    self.catalog.config.server.clone()
+                },
+                edit_controls: std::mem::take(&mut self.edit_controls_launch),
                 control_socket: (!crate::PUBLIC_BUILD).then(|| self.home.join("control.json")),
                 extra_arguments,
                 open_gl: self.catalog.config.renderer == crate::catalog::RendererMode::OpenGl,

@@ -17,7 +17,68 @@ pub(super) enum Kind {
     Orientation,
     InputHost,
     TouchLook,
+    QuickControls,
+    TouchValue(TouchValue),
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum TouchValue {
+    Opacity,
+    Sensitivity,
+    Mouse,
+    Cursor,
+    Buttons,
+    Circle,
+}
+impl TouchValue {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Opacity => "Control opacity",
+            Self::Sensitivity => "Touch sensitivity",
+            Self::Mouse => "Virtual mouse sensitivity",
+            Self::Cursor => "Virtual cursor size",
+            Self::Buttons => "Control button size",
+            Self::Circle => "Touch circle size",
+        }
+    }
+    pub fn current(self, s: &horizon_client::touch::Settings) -> u32 {
+        (match self {
+            Self::Opacity => s.control_opacity * 100.0,
+            Self::Sensitivity => s.sensitivity * 100.0,
+            Self::Mouse => s.virtual_mouse_sensitivity * 100.0,
+            Self::Cursor => s.cursor_scale * 100.0,
+            Self::Buttons => s.button_scale * 100.0,
+            Self::Circle => s.circle_size,
+        })
+        .round() as u32
+    }
+    pub fn value_label(self, value: u32) -> String {
+        format!("{value}{}", if self == Self::Circle { " px" } else { "%" })
+    }
+    pub fn presets(self) -> Vec<u32> {
+        match self {
+            Self::Opacity => (0..=100).step_by(10).collect(),
+            Self::Sensitivity => vec![10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 1000],
+            Self::Mouse => vec![25, 50, 75, 100, 125, 150, 175, 200, 250, 300],
+            Self::Cursor => vec![50, 75, 100, 125, 150, 175, 200, 250, 300],
+            Self::Buttons => vec![50, 75, 100, 125, 150, 175, 200],
+            Self::Circle => vec![16, 24, 32, 40, 48, 56, 64],
+        }
+    }
+    pub fn apply(self, s: &mut horizon_client::touch::Settings, value: u32) {
+        let v = value as f32 / 100.0;
+        match self {
+            Self::Opacity => s.control_opacity = v,
+            Self::Sensitivity => s.sensitivity = v,
+            Self::Mouse => s.virtual_mouse_sensitivity = v,
+            Self::Cursor => s.cursor_scale = v,
+            Self::Buttons => s.button_scale = v,
+            Self::Circle => s.circle_size = value as f32,
+        }
+        s.sanitize();
+    }
+}
+
 pub(super) struct Chooser {
     title: &'static str,
     help: &'static str,
@@ -143,6 +204,65 @@ impl Launcher {
                     "Client resolution",
                     "Small screens retain a usable menu size.",
                     choices,
+                )
+            }
+            Kind::QuickControls => {
+                let touch = horizon_client::touch::Settings::load_from(
+                    &c.game_home(&self.home).join("horizon-touch.json"),
+                );
+                let mut choices: Vec<_> = [
+                    TouchValue::Opacity,
+                    TouchValue::Sensitivity,
+                    TouchValue::Mouse,
+                    TouchValue::Cursor,
+                    TouchValue::Buttons,
+                    TouchValue::Circle,
+                ]
+                .into_iter()
+                .map(|v| {
+                    (
+                        v.label().into(),
+                        v.value_label(v.current(&touch)),
+                        Action::TouchValue(v),
+                        false,
+                    )
+                })
+                .collect();
+                choices.insert(
+                    0,
+                    (
+                        "Edit controls".into(),
+                        String::new(),
+                        Action::EditControls,
+                        false,
+                    ),
+                );
+                ("Quick controls", "", choices)
+            }
+            Kind::TouchValue(value) => {
+                let touch = horizon_client::touch::Settings::load_from(
+                    &c.game_home(&self.home).join("horizon-touch.json"),
+                );
+                let current = value.current(&touch);
+                let mut presets = value.presets();
+                if !presets.contains(&current) {
+                    presets.push(current);
+                    presets.sort_unstable();
+                }
+                (
+                    value.label(),
+                    "",
+                    presets
+                        .into_iter()
+                        .map(|p| {
+                            (
+                                value.value_label(p),
+                                String::new(),
+                                Action::ChooseTouchValue(value, p),
+                                p == current,
+                            )
+                        })
+                        .collect(),
                 )
             }
             Kind::TouchLook => {
@@ -379,5 +499,24 @@ impl Chooser {
             Action::Dismiss,
             false,
         );
+    }
+}
+
+#[cfg(test)]
+mod quick_value_tests {
+    use super::*;
+    #[test]
+    fn values_share_game_settings_and_preserve_layouts() {
+        let mut s = horizon_client::touch::Settings::default();
+        let before = serde_json::to_value(&s.layouts).unwrap();
+        TouchValue::Opacity.apply(&mut s, 30);
+        TouchValue::Sensitivity.apply(&mut s, 1000);
+        TouchValue::Cursor.apply(&mut s, 250);
+        assert_eq!(TouchValue::Opacity.current(&s), 30);
+        assert_eq!(s.sensitivity, 10.0);
+        assert_eq!(s.cursor_scale, 2.5);
+        assert_eq!(serde_json::to_value(&s.layouts).unwrap(), before);
+        TouchValue::Sensitivity.apply(&mut s, 9000);
+        assert_eq!(s.sensitivity, 10.0);
     }
 }
