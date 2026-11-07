@@ -509,7 +509,7 @@ impl Launcher {
                     32.0,
                     369.0,
                     color::MUTED,
-                    "Template saved to Config. Install only the mods you want.",
+                    "Template: Config folder. No built-in mods.",
                 );
             }
         } else if page == Page::Installed {

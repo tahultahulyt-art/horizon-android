@@ -1,4 +1,4 @@
-# Android dev.15: loader-only mods
+# Android: loader-only mods
 
 All eight previously compiled Android mods have been removed: Zoom, Minimap,
 Recipes, SmartF3, Armor HUD, Crosshair Indicator, Status Effect HUD and Keystrokes.
