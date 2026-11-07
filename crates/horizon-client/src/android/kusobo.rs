@@ -7,7 +7,7 @@ const TEMPLATE: &[u8] = include_bytes!("../../../../packaging/android/kusobo/kus
 /// Called only by the launcher's worker. Never replaces user files or enables code.
 pub fn install(game: &Path, template: bool) -> Result<String, String> {
     let (folder, name, bytes) = if template {
-        ("config", "kusobo-template.zip", TEMPLATE)
+        ("", "kusobo-template.zip", TEMPLATE)
     } else {
         ("horizon-mods", "kusobo_coordinates.hmod", SAMPLE)
     };
@@ -37,7 +37,7 @@ pub fn install(game: &Path, template: bool) -> Result<String, String> {
         return Err(e.to_string());
     }
     Ok(if template {
-        "Template exported to Config/kusobo-template.zip. Copy it with Files; a Rust development computer is needed to build it."
+        "Template exported to Configuration/kusobo-template.zip. Copy it with Files; a Rust development computer is needed to build it."
     } else {
         "Kusobo Coordinates installed OFF. Enable in Installed, then Play. /coords toggles HUD, /where prints position."
     }.into())

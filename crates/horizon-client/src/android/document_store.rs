@@ -14,6 +14,7 @@ const CONFIG_FILES: &[&str] = &[
     "horizon-graphics.txt",
     "horizon-touch.json",
     "horizon-keypad.json",
+    "kusobo-template.zip",
 ];
 static GAME_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn set_game_active(active: bool) {

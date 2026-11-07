@@ -6,7 +6,7 @@ Open Mods > Kusobo Loader. Import a supported .hmod, then open Installed to enab
 
 Install sample adds Kusobo Coordinates without replacing a file or changing the enabled list. Enable it in Installed, then Play. /coords hides or shows the HUD; /where prints coordinates to your own chat. It reads position/world time and can draw HUD and local chat. No network or filesystem access is granted to the sample. It does not change worlds.
 
-Export template writes kusobo-template.zip into Config without replacing an existing file. Open Files > Config to copy it out. This is a source template, NOT an importable mod. Building Rust/WebAssembly requires a Rust development environment. Phone-only compilation is not part of v1.
+Export template writes kusobo-template.zip into Configuration without replacing an existing file. Open Files > Configuration to copy it out. This is a source template, NOT an importable mod. Building Rust/WebAssembly requires a Rust development environment. Phone-only compilation is not part of v1.
 
 ## Build sample/template on a development computer
 
