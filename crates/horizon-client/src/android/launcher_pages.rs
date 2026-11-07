@@ -443,7 +443,7 @@ impl Launcher {
                 181.0,
                 color::MUTED,
                 if page == Page::Mods {
-                    "Sandboxed .hmod / WebAssembly. Fabric/Forge .jar NOT supported."
+                    ".hmod / WebAssembly. No Fabric/Forge .jar support."
                 } else {
                     "Add files from your phone. Online catalogs are removed."
                 },
@@ -473,7 +473,7 @@ impl Launcher {
                 282.0,
                 color::MUTED,
                 if page == Page::Mods {
-                    "Imports start OFF. Enable in Installed; runtime errors: Options > Mods."
+                    "Enable imports in Installed. Errors: Options > Mods."
                 } else {
                     "Use Files to copy any safe filename. Import checks supported add-ons."
                 },
@@ -489,7 +489,12 @@ impl Launcher {
                     button(
                         &mut ui,
                         &mut self.targets,
-                        [32.0 + i as f32 * (bw + 8.0), 315.0, bw, 42.0],
+                        [
+                            32.0 + i as f32 * ((w - 72.0) / 2.0 + 8.0),
+                            315.0,
+                            (w - 72.0) / 2.0,
+                            42.0,
+                        ],
                         label,
                         action,
                         false,
@@ -501,7 +506,7 @@ impl Launcher {
                     32.0,
                     369.0,
                     color::MUTED,
-                    "Template exports to Config. Built-ins below are separate native ports.",
+                    "Template: Config folder. Built-in mods below.",
                 );
                 let bundled = horizon_client::mod_list::ANDROID_BUNDLED;
                 let top = 409.0;

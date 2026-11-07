@@ -2810,13 +2810,13 @@ impl OptionsUi {
                         Text::literal("More settings..."),
                         Act::Push(Page::Main),
                     ),
-                    button(
+                    Some(button(
                         0.0,
                         0.0,
                         150.0,
                         Text::literal("Touch settings..."),
                         Act::Push(Page::Touch),
-                    ),
+                    )),
                 ));
                 rows
             }
