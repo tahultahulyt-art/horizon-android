@@ -9,6 +9,8 @@ mod files;
 mod gesture;
 #[path = "login.rs"]
 mod login;
+#[path = "offline_identity.rs"]
+mod offline_identity;
 #[path = "launcher_pages.rs"]
 mod pages;
 #[path = "launcher_skin.rs"]
@@ -115,7 +117,19 @@ impl Launcher {
                 log::warn!("Could not clean completed Minecraft downloads: {error}");
             }
         });
+        let offline_migration = offline_identity::apply(&home, &crate::account::Accounts::path());
         let mut catalog = Catalog::new(&home);
+        match offline_migration {
+            Ok(true) => {
+                catalog.status =
+                    "Offline player risiya selected. Saved online accounts and worlds were kept."
+                        .into()
+            }
+            Err(error) => {
+                catalog.status = format!("Could not select offline player risiya: {error}")
+            }
+            Ok(false) => {}
+        }
         if crate::diagnostics::previous_unclean(&home) {
             catalog.status = crate::diagnostics::summary(&home);
         }

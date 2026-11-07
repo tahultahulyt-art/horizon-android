@@ -57,6 +57,8 @@ pub struct Config {
     pub profile: u32,
     pub proxy: Option<String>,
     pub name: String,
+    /// Requested one-time offline selection; never reset later user choices.
+    pub risiya_offline_applied_v1: bool,
     pub server: String,
     #[serde(skip)]
     pub microsoft_client_id: String,
