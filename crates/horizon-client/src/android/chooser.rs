@@ -25,6 +25,9 @@ pub(super) enum Kind {
 pub(super) enum TouchValue {
     Opacity,
     Sensitivity,
+    Stabilizer,
+    Assist,
+    AssistStrength,
     Mouse,
     Cursor,
     Buttons,
@@ -35,6 +38,9 @@ impl TouchValue {
         match self {
             Self::Opacity => "Control opacity",
             Self::Sensitivity => "Touch sensitivity",
+            Self::Stabilizer => "Shield Mode",
+            Self::Assist => "Shield Mode: Target Stick",
+            Self::AssistStrength => "Target Stick strength",
             Self::Mouse => "Virtual mouse sensitivity",
             Self::Cursor => "Virtual cursor size",
             Self::Buttons => "Control button size",
@@ -45,6 +51,21 @@ impl TouchValue {
         (match self {
             Self::Opacity => s.control_opacity * 100.0,
             Self::Sensitivity => s.sensitivity * 100.0,
+            Self::AssistStrength => s.aim_assist_strength * 100.0,
+            Self::Assist => {
+                if s.aim_assist {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            Self::Stabilizer => {
+                if s.aim_stabilizer {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
             Self::Mouse => s.virtual_mouse_sensitivity * 100.0,
             Self::Cursor => s.cursor_scale * 100.0,
             Self::Buttons => s.button_scale * 100.0,
@@ -53,10 +74,15 @@ impl TouchValue {
         .round() as u32
     }
     pub fn value_label(self, value: u32) -> String {
+        if matches!(self, Self::Stabilizer | Self::Assist) {
+            return if value == 0 { "Off" } else { "On" }.into();
+        }
         format!("{value}{}", if self == Self::Circle { " px" } else { "%" })
     }
     pub fn presets(self) -> Vec<u32> {
         match self {
+            Self::Stabilizer | Self::Assist => vec![0, 1],
+            Self::AssistStrength => vec![0, 5, 10, 15, 20, 25, 30],
             Self::Opacity => (0..=100).step_by(10).collect(),
             Self::Sensitivity => vec![10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 1000],
             Self::Mouse => vec![25, 50, 75, 100, 125, 150, 175, 200, 250, 300],
@@ -68,6 +94,9 @@ impl TouchValue {
     pub fn apply(self, s: &mut horizon_client::touch::Settings, value: u32) {
         let v = value as f32 / 100.0;
         match self {
+            Self::Stabilizer => s.aim_stabilizer = value != 0,
+            Self::Assist => s.aim_assist = value != 0,
+            Self::AssistStrength => s.aim_assist_strength = v,
             Self::Opacity => s.control_opacity = v,
             Self::Sensitivity => s.sensitivity = v,
             Self::Mouse => s.virtual_mouse_sensitivity = v,
@@ -213,6 +242,9 @@ impl Launcher {
                 let mut choices: Vec<_> = [
                     TouchValue::Opacity,
                     TouchValue::Sensitivity,
+                    TouchValue::Stabilizer,
+                    TouchValue::Assist,
+                    TouchValue::AssistStrength,
                     TouchValue::Mouse,
                     TouchValue::Cursor,
                     TouchValue::Buttons,
@@ -251,7 +283,13 @@ impl Launcher {
                 }
                 (
                     value.label(),
-                    "",
+                    if value == TouchValue::Stabilizer {
+                        "Smooths small touch movements. Adds a small input delay. No target tracking, lock-on or auto-attack. Default off."
+                    } else if matches!(value, TouchValue::Assist | TouchValue::AssistStrength) {
+                        "Requires Shield Mode and crosshair controls. Small automatic corrections near visible other players, only while your finger moves. No attacks or full lock. Strength 0-30%. Default off. Follow server rules; aim assist may be prohibited."
+                    } else {
+                        ""
+                    },
                     presets
                         .into_iter()
                         .map(|p| {

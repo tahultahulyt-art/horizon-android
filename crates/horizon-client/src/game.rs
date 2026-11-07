@@ -300,6 +300,8 @@ mod text_displays;
 mod titles;
 mod tnt;
 mod totem;
+#[cfg(target_os = "android")]
+mod touch_assist;
 mod trading;
 mod transient_blocks;
 mod trial_spawner;
@@ -16345,6 +16347,11 @@ impl Game<'_> {
                     size.height,
                     &self.pad.touch.settings,
                 );
+                let delta = self
+                    .pad
+                    .touch
+                    .stabilizer
+                    .input(delta, self.pad.touch.settings.aim_stabilizer);
                 self.tutorial
                     .mouse(f64::from(delta[0]), f64::from(delta[1]));
                 self.yaw += delta[0];
@@ -17645,6 +17652,31 @@ impl Game<'_> {
                     self.mods_frame(elapsed);
                     self.poll_moved_extras();
                     self.extras_retry()?;
+                    #[cfg(target_os = "android")]
+                    {
+                        if self.pad_in_menu() || !self.focused {
+                            self.pad.touch.stabilizer.clear();
+                        } else if self.pad.touch.settings.aim_stabilizer {
+                            let active = self.pad.touch.look_active();
+                            let delta = self.pad.touch.stabilizer.frame(
+                                elapsed.as_secs_f32(),
+                                active,
+                                self.pad.touch.settings.aim_stabilizer,
+                            );
+                            let moved = self.pad.touch.stabilizer.take_motion();
+                            let correction =
+                                if self.pad.touch.settings.aim_assist && moved && active {
+                                    self.touch_assist_correction(delta, elapsed.as_secs_f32())
+                                } else {
+                                    [0.0; 2]
+                                };
+                            let delta = [delta[0] + correction[0], delta[1] + correction[1]];
+                            self.tutorial
+                                .mouse(f64::from(delta[0]), f64::from(delta[1]));
+                            self.yaw += delta[0];
+                            self.pitch = (self.pitch + delta[1]).clamp(-90.0, 90.0);
+                        }
+                    }
                     self.apply_mouse_look();
                     self.pad_look(elapsed.as_secs_f32());
                     self.advance_flight();

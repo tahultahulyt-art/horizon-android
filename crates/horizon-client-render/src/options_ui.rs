@@ -201,6 +201,9 @@ impl Opt {
             Opt::TouchHorizontalMargin => "HUD margins: left / right",
             Opt::TouchVerticalMargin => "HUD margins: top / bottom",
             Opt::TouchSensitivity => "Touch sensitivity",
+            Opt::TouchAimStabilizer => "Shield Mode",
+            Opt::TouchAimAssist => "Target Stick",
+            Opt::TouchAimAssistStrength => "Target Stick strength",
             Opt::TouchSensitivityHorizontal => "Horizontal sensitivity",
             Opt::TouchSensitivityVertical => "Vertical sensitivity",
             Opt::TouchOffhand => "Swap hands button",
@@ -361,6 +364,7 @@ impl Opt {
             Opt::TouchVerticalMargin => unit(s.touch.vertical_margin, 0.0, 0.12),
             Opt::DebugGuiScale => unit(s.file.int("debugGuiScale").max(0) as f32, 0.0, 6.0),
             Opt::AndroidGyroSensitivity => unit(s.touch.gyro_sensitivity, 0.1, 3.0),
+            Opt::TouchAimAssistStrength => unit(s.touch.aim_assist_strength, 0.0, 0.3),
             Opt::TouchSensitivity => unit(s.touch.sensitivity, 0.1, 10.0),
             Opt::TouchSensitivityHorizontal => unit(s.touch.sensitivity_horizontal, 0.1, 10.0),
             Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 10.0),
@@ -563,6 +567,13 @@ impl Opt {
             ),
             Opt::TouchMouseSensitivity => {
                 Some(format!("{:.0}%", s.touch.virtual_mouse_sensitivity * 100.0))
+            }
+            Opt::TouchAimAssistStrength => {
+                Some(format!("{:.0}%", s.touch.aim_assist_strength * 100.0))
+            }
+            Opt::TouchAimAssist => Some(if s.touch.aim_assist { "On" } else { "Off" }.into()),
+            Opt::TouchAimStabilizer => {
+                Some(if s.touch.aim_stabilizer { "On" } else { "Off" }.into())
             }
             Opt::TouchAttackButtonLook => Some(
                 if s.touch.attack_button_look {
@@ -1003,6 +1014,7 @@ impl Opt {
                 crate::options_file::V::Int(step(0.0, 6.0) as i32),
             ),
             Opt::AndroidGyroSensitivity => s.touch.gyro_sensitivity = 0.1 + v * 2.9,
+            Opt::TouchAimAssistStrength => s.touch.aim_assist_strength = v * 0.3,
             Opt::TouchSensitivity => s.touch.sensitivity = 0.1 + v * 9.9,
             Opt::TouchSensitivityHorizontal => s.touch.sensitivity_horizontal = 0.1 + v * 9.9,
             Opt::TouchSensitivityVertical => s.touch.sensitivity_vertical = 0.1 + v * 9.9,
@@ -1130,6 +1142,8 @@ impl Opt {
             Opt::TouchShield => s.touch.shield_button ^= true,
             Opt::TouchLeftHand => s.touch.left_handed ^= true,
             Opt::TouchSprintButton => s.touch.sprint_button ^= true,
+            Opt::TouchAimStabilizer => s.touch.aim_stabilizer ^= true,
+            Opt::TouchAimAssist => s.touch.aim_assist ^= true,
             Opt::TouchSprintToggle => s.touch.sprint_toggle ^= true,
             Opt::TouchInventoryControls => s.touch.inventory_controls ^= true,
             Opt::TouchDynamicJoystick => s.touch.dynamic_joystick ^= true,
@@ -1855,6 +1869,9 @@ fn option_widget(s: &Settings, opt: Opt, x: f32, y: f32, w: f32) -> Widget {
         Opt::TouchSprintButton => {
             s.touch.mode != crate::touch::Mode::Dpad && !s.touch.sprint_with_joystick
         }
+        Opt::TouchAimAssist | Opt::TouchAimAssistStrength => {
+            s.touch.aim_stabilizer && s.touch.crosshair()
+        }
         Opt::TouchInteract => !s.touch.crosshair(),
         Opt::TouchCrosshairGestures | Opt::TouchAttackButtonLook => s.touch.crosshair(),
         Opt::TouchSwapJumpSneak => s.touch.mode == crate::touch::Mode::Dpad,
@@ -2075,6 +2092,16 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     };
     if let Some(key) = key.filter(|key| lang::has(key)) {
         tip = Some(tr(&key));
+    }
+    if let Act::Cycle(Opt::TouchAimAssist) = act {
+        tip = Some(Text::literal(
+            "Requires Shield Mode and crosshair controls. Adds small automatic corrections near visible other players, only while your finger moves. No attack or full lock. Strength 0-30%. Default off. Follow server rules; aim assist may be prohibited.",
+        ));
+    }
+    if let Act::Cycle(Opt::TouchAimStabilizer) = act {
+        tip = Some(Text::literal(
+            "Smooths small touch movements. Adds a small input delay. No target tracking, lock-on or auto-attack. Default off.",
+        ));
     }
     if let Act::Cycle(Opt::GraphicsBackend) = act {
         tip = Some(graphics_api_tooltip(s));
@@ -2796,6 +2823,9 @@ impl OptionsUi {
                 rows.extend(pairs(&[
                     Opt::TouchControlOpacity,
                     Opt::TouchSensitivity,
+                    Opt::TouchAimStabilizer,
+                    Opt::TouchAimAssist,
+                    Opt::TouchAimAssistStrength,
                     Opt::TouchMouseSensitivity,
                     Opt::TouchCursorScale,
                     Opt::TouchButtonScale,
@@ -2826,6 +2856,9 @@ impl OptionsUi {
                     Opt::TouchCrosshairGestures,
                     Opt::TouchAttackButtonLook,
                     Opt::TouchSensitivity,
+                    Opt::TouchAimStabilizer,
+                    Opt::TouchAimAssist,
+                    Opt::TouchAimAssistStrength,
                     Opt::TouchSensitivityHorizontal,
                     Opt::TouchSensitivityVertical,
                     Opt::TouchOffhand,

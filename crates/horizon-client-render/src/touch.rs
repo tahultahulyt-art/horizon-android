@@ -6,8 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 const HOLD_DELAY: Duration = Duration::from_millis(350);
+pub mod assist;
 mod custom;
 mod editor;
+pub mod stabilizer;
 pub use custom::CustomButton;
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
@@ -123,6 +125,7 @@ enum Role {
 #[derive(Default)]
 pub struct TouchControls {
     pub settings: Settings,
+    pub stabilizer: stabilizer::AimStabilizer,
     pub force_crosshair: bool,
     pub projectile_crosshair: bool,
     pub shield_available: bool,
@@ -758,7 +761,15 @@ impl TouchControls {
         }
         [0.0; 2]
     }
+    pub fn look_active(&self) -> bool {
+        self.fingers.values().any(|(role, _)| {
+            matches!(role, Role::Look { .. })
+                || (self.settings.attack_button_look
+                    && matches!(role, Role::Button(Button::RightTrigger)))
+        })
+    }
     pub fn clear(&mut self) {
+        self.stabilizer.clear();
         self.inventory_shift = false;
         self.clear_custom();
         self.fingers.clear();

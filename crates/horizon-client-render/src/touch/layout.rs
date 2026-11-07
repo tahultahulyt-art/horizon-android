@@ -137,6 +137,10 @@ pub struct Settings {
     pub sprint_with_joystick: bool,
     pub swap_jump_sneak: bool,
     pub sensitivity: f32,
+    /// Smooth real finger input, never target-aware.
+    pub aim_stabilizer: bool,
+    pub aim_assist: bool,
+    pub aim_assist_strength: f32,
     pub sensitivity_horizontal: f32,
     pub sensitivity_vertical: f32,
     pub offhand_button: bool,
@@ -228,6 +232,9 @@ impl Default for Settings {
             sprint_with_joystick: false,
             swap_jump_sneak: false,
             sensitivity: 1.0,
+            aim_stabilizer: false,
+            aim_assist: false,
+            aim_assist_strength: 0.15,
             sensitivity_horizontal: 1.0,
             sensitivity_vertical: 1.0,
             offhand_button: false,
@@ -320,6 +327,11 @@ impl Settings {
             self.virtual_mouse_sensitivity.clamp(0.25, 3.0)
         } else {
             1.0
+        };
+        self.aim_assist_strength = if self.aim_assist_strength.is_finite() {
+            self.aim_assist_strength.clamp(0.0, 0.3)
+        } else {
+            0.15
         };
         self.gyro_sensitivity = if self.gyro_sensitivity.is_finite() {
             self.gyro_sensitivity.clamp(0.1, 3.0)
@@ -439,6 +451,26 @@ pub fn contains([x, y, w, h]: [f32; 4], p: [f32; 2]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stabilizer_defaults_off_for_existing_profiles_and_roundtrips() {
+        let mut settings: super::Settings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.aim_stabilizer);
+        assert!(!settings.aim_assist);
+        settings.aim_stabilizer = true;
+        settings.aim_assist = true;
+        let restored: super::Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert!(restored.aim_stabilizer);
+        assert!(restored.aim_assist);
+        assert_eq!(restored.aim_assist_strength, 0.15);
+        settings.aim_assist_strength = 10.0;
+        settings.sanitize();
+        assert_eq!(settings.aim_assist_strength, 0.3);
+        settings.aim_assist_strength = f32::NAN;
+        settings.sanitize();
+        assert_eq!(settings.aim_assist_strength, 0.15);
+        assert_eq!(restored.sensitivity, settings.sensitivity);
+    }
     #[test]
     fn gyro_preferences_roundtrip_and_reject_bad_values() {
         let mut s = super::Settings::default();
