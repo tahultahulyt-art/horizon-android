@@ -175,7 +175,7 @@ impl Launcher {
             game.exiting(events);
             drop(game);
         }
-        crate::game::android_reset_bundled_mods();
+
         crate::document_store::set_game_active(false);
         crate::performance::stop();
         crate::platform::hide();

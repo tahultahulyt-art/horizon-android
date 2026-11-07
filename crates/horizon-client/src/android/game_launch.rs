@@ -55,7 +55,7 @@ pub(crate) fn start(
     std::env::set_current_dir(&request.game_home)?;
     horizon_client::android_runtime::configure_graphics(request.open_gl);
     horizon_client::android_runtime::configure_gpu(request.gpu_batching);
-    crate::game::android_reset_bundled_mods();
+
     crate::OPEN_TOUCH_EDITOR.store(request.edit_controls, std::sync::atomic::Ordering::Release);
     let result = crate::game::android_game(request.arguments());
     if result.is_err() {

@@ -54,7 +54,6 @@ mod advancements_screen;
 mod agent;
 mod agent_settings;
 mod allays;
-mod android_bundled;
 #[cfg(target_os = "android")]
 mod android_input;
 mod armor_stands;
@@ -202,12 +201,6 @@ mod native_entities;
 mod native_explosions;
 mod native_falling;
 mod native_hooks;
-#[cfg(target_os = "android")]
-use android_bundled::{
-    armorhud, mod_crosshair_indicator, mod_crosshair_indicator_glue, mod_status_effect_hud,
-    mod_status_effect_hud_glue, official_keystrokes, official_minimap, official_recipes,
-    official_recipes_glue, official_zoom, smartf3,
-};
 mod native_lifecycle;
 mod native_menus;
 mod native_mobs;
@@ -7914,10 +7907,6 @@ impl Game<'_> {
         }
     }
     fn hud(&mut self, size: [u32; 2]) -> HudBatch {
-        #[cfg(target_os = "android")]
-        if let Some(batch) = self.smartf3_hud(size) {
-            return batch;
-        }
         // The pack prompt replaces the connecting screen (setScreen), but
         // in game it opens over the world.
         let mut batch = if (self.server_packs.prompt.is_some()
@@ -21585,9 +21574,4 @@ fn write_level_for_role(
     } else {
         level.write_without_player(dir)
     }
-}
-
-#[cfg(target_os = "android")]
-pub(crate) fn android_reset_bundled_mods() {
-    android_bundled::reset();
 }

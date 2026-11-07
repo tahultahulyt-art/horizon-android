@@ -1135,7 +1135,6 @@ fn chars_to_type(text: &str, canceled: impl FnMut(char) -> bool) -> Option<Strin
 impl Game<'_> {
     /// Once a frame, in a world or not, after Horizon's extras.
     pub(super) fn native_frame(&mut self, elapsed: Duration) {
-        super::android_bundled::native_frame(self, elapsed);
         let _ = elapsed;
     }
     /// Render-thread notification after a resource-pack reload has applied successfully.
@@ -1230,7 +1229,7 @@ impl Game<'_> {
     /// `native_fill` and `native_text`. Skip a corner `native_corner_shown`
     /// says is taken.
     pub(super) fn native_hud(&mut self, batch: &mut HudBatch, corners: &mut Corners) {
-        super::android_bundled::native_hud(self, batch, corners);
+        let _ = (batch, corners);
     }
     /// A player right-clicks the entity `entity` (`Entity.getId`) of type
     /// `kind` (`minecraft:cow`) with `self.hand`, holding `stack` (none in an
@@ -1291,18 +1290,15 @@ impl Game<'_> {
     /// (`key.keyboard.z`, `key.mouse.left`): keys on any screen (check
     /// `native_playing`), mouse buttons while playing. Repeats are left out.
     pub(super) fn native_key(&mut self, key: &str, pressed: bool) {
-        super::android_bundled::native_key(self, key, pressed);
         let _ = (key, pressed);
     }
     /// Wheel steps while playing: set `claimed` to keep them from the hotbar.
     pub(super) fn native_wheel(&mut self, steps: f32, claimed: &mut bool) {
-        super::android_bundled::native_wheel(self, steps, claimed);
         let _ = (steps, claimed);
     }
     /// A command typed or clicked in chat, without its slash, before the
     /// server and Horizon's commands see it: set `ran` when the mod ran it.
     pub(super) fn native_command(&mut self, command: &str, ran: &mut bool) {
-        super::android_bundled::native_command(self, command, ran);
         let _ = (command, ran);
     }
     /// The commands `native_command` runs, by name and without their slash:
@@ -1316,7 +1312,6 @@ impl Game<'_> {
     /// The zoom a native mod asks for, applied while playing (the spyglass's
     /// own view wins): set `zoom` when it is none yet.
     pub(super) fn native_zoom(&self, zoom: &mut Option<NativeZoom>) {
-        super::android_bundled::native_zoom(self, zoom);
         let _ = zoom;
     }
     /// The camera shake native mods ask for in this frame, `partial` ticks
@@ -1356,7 +1351,6 @@ impl Game<'_> {
     }
     /// The minimap a native mod shows: set `minimap` when it is none yet.
     pub(super) fn native_minimap(&self, minimap: &mut Option<NativeMinimap>) {
-        super::android_bundled::native_minimap(self, minimap);
         let _ = minimap;
     }
     /// Register namespaced NBT component types before content loads.
@@ -1365,25 +1359,21 @@ impl Game<'_> {
     }
     /// Options > Mods lists the native mods: push yours.
     pub(super) fn native_mods(&mut self, mods: &mut Vec<NativeMod>) {
-        super::android_bundled::native_mods(self, mods);
         let _ = mods;
     }
     /// The buttons of mod `mod_id`'s settings page, under its keys: push
     /// their labels when it is yours. Asked again each time the page opens
     /// and after each click.
     pub(super) fn native_settings(&mut self, mod_id: &str, buttons: &mut Vec<String>) {
-        super::android_bundled::native_settings(self, mod_id, buttons);
         let _ = (mod_id, buttons);
     }
     /// Button `button` of mod `mod_id`'s settings page was clicked.
     pub(super) fn native_settings_click(&mut self, mod_id: &str, button: usize) {
-        super::android_bundled::native_settings_click(self, mod_id, button);
         let _ = (mod_id, button);
     }
     /// The player did `event` on mod `mod_id`'s panel (`native_panel_items`):
     /// act on it when it is yours. API 2.
     pub(super) fn native_panel_event(&mut self, mod_id: &str, event: &NativePanelEvent) {
-        super::android_bundled::native_panel_event(self, mod_id, event);
         let _ = (mod_id, event);
     }
     /// Block `block` (`mymod:machine`) gets a block entity

@@ -84,7 +84,6 @@ pub(super) enum Action {
     ChooseCacheBudget(u32),
     KusoboSample,
     KusoboTemplate,
-    ToggleBundled(&'static str),
     WorldFiles,
     GameFiles,
     FilesUp,
@@ -510,38 +509,8 @@ impl Launcher {
                     32.0,
                     369.0,
                     color::MUTED,
-                    "Template: Config folder. Built-in mods below.",
+                    "Template saved to Config. Install only the mods you want.",
                 );
-                let bundled = horizon_client::mod_list::ANDROID_BUNDLED;
-                let top = 409.0;
-                let bottom = h - 110.0;
-                let maximum = (bundled.len() as f32 * 78.0 - (bottom - top)).max(0.0);
-                self.catalog.scroll = self.catalog.scroll.clamp(0.0, maximum);
-                self.list_view = Some([top, bottom, maximum]);
-                for (row, (id, title, description)) in bundled.iter().enumerate() {
-                    let y = top + row as f32 * 78.0 - self.catalog.scroll;
-                    self.list_targets
-                        .push(([w - 150.0, y, 118.0, 42.0], Action::ToggleBundled(id)));
-                    if y < top || y + 68.0 > bottom {
-                        continue;
-                    }
-                    let title = ui.fit_text(Face::Medium, 19.0, title, w - 214.0);
-                    let summary = ui.fit_text(Face::Regular, 14.0, description, w - 214.0);
-                    ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
-                    ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
-                    button(
-                        &mut ui,
-                        &mut self.targets,
-                        [w - 150.0, y, 118.0, 42.0],
-                        if self.catalog.bundled_enabled.contains(*id) {
-                            "Disable"
-                        } else {
-                            "Enable"
-                        },
-                        Action::ToggleBundled(id),
-                        false,
-                    );
-                }
             }
         } else if page == Page::Installed {
             use horizon_client::content_files::Kind;
@@ -1223,25 +1192,6 @@ impl Launcher {
             }
             Some(Action::KusoboSample) => self.catalog.kusobo_resource(&self.home, false),
             Some(Action::KusoboTemplate) => self.catalog.kusobo_resource(&self.home, true),
-            Some(Action::ToggleBundled(id)) => {
-                let game = self.catalog.config.game_home(&self.home);
-                let mut list = horizon_client::mod_list::ModList::load(&game);
-                let enabled = list.enabled.contains(id) && !list.disabled.contains(id);
-                if enabled {
-                    list.enabled.remove(id);
-                    list.disabled.insert(id.into());
-                } else {
-                    list.disabled.remove(id);
-                    list.enabled.insert(id.into());
-                }
-                std::fs::create_dir_all(&game)?;
-                std::fs::write(game.join(horizon_client::mod_list::FILE), list.serialize())?;
-                self.catalog.refresh(&self.home);
-                self.catalog.status = format!(
-                    "Bundled {id} {}. Applies on Play; settings are in Options > Mods.",
-                    if enabled { "disabled" } else { "enabled" }
-                );
-            }
             Some(Action::GameFiles) => {
                 self.catalog.status = if crate::platform::open_documents(crate::document_store::ROOT) {
                     "Game files opened. Worlds, mods, packs, shaders and reports are available here."

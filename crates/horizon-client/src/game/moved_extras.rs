@@ -32,6 +32,12 @@ mod with_mods {
     impl Game<'_> {
         /// At start: remembers the moved extras that were off, and installs
         /// the ones that were on, in the background.
+        // Android's Kusobo flow installs packages only at the player's request.
+        // Do not fetch former built-ins automatically from old Extras settings.
+        #[cfg(target_os = "android")]
+        pub(in crate::game) fn start_moved_extras(&mut self) {}
+
+        #[cfg(not(target_os = "android"))]
         pub(in crate::game) fn start_moved_extras(&mut self) {
             let off = moved_extras::nothing_to_do(&self.settings.extras);
             let pending = moved_extras::pending(&self.settings.extras);

@@ -10,50 +10,6 @@ use std::{
 };
 
 pub const FILE: &str = "horizon-mods.txt";
-/// Fixed native modules compiled into Android APKs, all opt-in.
-pub const ANDROID_BUNDLED: [(&str, &str, &str); 8] = [
-    (
-        "zoom",
-        "Zoom",
-        "Hold Z to zoom; configurable in Options > Mods",
-    ),
-    (
-        "minimap",
-        "Minimap",
-        "A configurable map in the screen corner",
-    ),
-    (
-        "recipes",
-        "Recipes",
-        "Item recipes and uses beside the inventory",
-    ),
-    (
-        "smartf3",
-        "SmartF3",
-        "Configurable modules for the F3 debug screen",
-    ),
-    (
-        "armorhud",
-        "Armor HUD",
-        "Equipped armor, durability and low-durability alerts",
-    ),
-    (
-        "crosshair_indicator",
-        "Crosshair Indicator",
-        "Attack-reach indicator and optional cooldown bar",
-    ),
-    (
-        "status_effect_hud",
-        "Status Effect HUD",
-        "Active effects, levels and countdown timers",
-    ),
-    (
-        "keystrokes",
-        "Keystrokes",
-        "Movement and action display with clicks per second",
-    ),
-];
-
 /// The folder holding `.hmod` files, beside `options.txt`.
 pub const DIR: &str = "horizon-mods";
 /// Where the launcher installs native mods (`<id>.hnmod`), beside [`DIR`]. They run only in a
@@ -118,16 +74,6 @@ impl ModList {
                 .collect()
         };
         let (enabled, disabled) = (ids("true"), ids("false"));
-        #[cfg(target_os = "android")]
-        let disabled = {
-            let mut disabled = disabled;
-            for (id, _, _) in ANDROID_BUNDLED {
-                if !enabled.contains(id) {
-                    disabled.insert(id.to_owned());
-                }
-            }
-            disabled
-        };
         let mut keys: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (k, v) in text.lines().filter_map(|l| l.split_once(':')) {
             // Mod ids have no dots; a key's name may.
