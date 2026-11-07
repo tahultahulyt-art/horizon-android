@@ -17838,6 +17838,9 @@ impl Game<'_> {
     }
     /// The loop ended: close the pads' output, save the world, write the perf report.
     pub(super) fn shut_down(&mut self) {
+        if let Err(e) = horizon_client::shader_safety::disarm(&Self::options_path()) {
+            log::warn!("Could not clear shader session guard: {e}");
+        }
         self.pad_close_output();
         if let Err(e) = self.save_for_exit() {
             log::warn!("Horizon: failed to save the world on exit: {e}");
@@ -19715,6 +19718,19 @@ fn start_game<'a>(
         Some(settings) => settings,
         None => Settings::load(&std::env::current_dir()?.join("options.txt")),
     };
+    let shader_options_path = std::env::current_dir()?.join("options.txt");
+    if horizon_client::shader_safety::recover(
+        &shader_options_path,
+        &mut settings.horizon.shader_pack,
+    )
+    .map_err(std::io::Error::other)?
+    {
+        horizon_client::shader_safety::persist_off(&shader_options_path)
+            .map_err(std::io::Error::other)?;
+        horizon_client::shader_safety::disarm(&shader_options_path)
+            .map_err(std::io::Error::other)?;
+        log::warn!("Previous shader session did not close cleanly. Shader selection reset to OFF.");
+    }
     if let Some(d) = options.distance_override {
         settings.render_distance = d;
     }

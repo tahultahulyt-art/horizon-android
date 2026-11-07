@@ -132,6 +132,11 @@ impl Game<'_> {
         );
         if self.native_shaders.picked != picked {
             // Another pack, or none: drop what ran.
+            if picked.is_empty()
+                && let Err(e) = horizon_client::shader_safety::disarm(&Self::options_path())
+            {
+                log::warn!("Could not clear shader session guard: {e}");
+            }
             self.native_shaders = super::native_shaders::NativeShaders::picking(picked);
             self.pack_ids = None;
             if let Some(renderer) = &mut self.renderer {

@@ -80,6 +80,7 @@ pub mod section_mask;
 pub mod settings;
 pub mod shader_options;
 pub mod shader_pack_list;
+pub mod shader_safety;
 pub mod signs;
 pub mod skins;
 pub mod sound_engine;

@@ -198,6 +198,10 @@ fn sprite_matches(pattern: &str, name: &str) -> bool {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Stage {
+    /// Explicit no-depth post pass: input.depth is zero and depth_at/scene_depth are unavailable.
+    /// Opt-out avoids depth-sampler translation on mobile GLES; true preserves existing packs.
+    #[serde(default = "default_post_depth")]
+    pub depth: bool,
     pub file: String,
     /// WGSL files put before `file`, after the shared ones, for this stage only.
     #[serde(default)]
@@ -1061,4 +1065,8 @@ impl OptionKind {
             OptionKind::Choice { default, .. } => f64::from(default),
         }
     }
+}
+
+fn default_post_depth() -> bool {
+    true
 }

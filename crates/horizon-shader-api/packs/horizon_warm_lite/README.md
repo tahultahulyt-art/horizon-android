@@ -1,0 +1,1 @@
+Original Horizon Warm Lite, inspired by BSL style. Not BSL, no BSL code/assets. Stage1: sky and one mild post grade only. DefaultOFF; do not enable until on-device testing is approved. No shadows, bloom, reflected-world pass, volumetric light or water rewrite. API and host tests are not PowerVR safety certification. MIT.

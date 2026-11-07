@@ -1,0 +1,15 @@
+schema = 1
+id = "horizon_warm_lite"
+name = "Horizon Warm Lite"
+version = "0.1.0"
+api = "0.1"
+description = "Original warm colour and sky. Inspired by BSL style; no BSL code. No shadows, bloom or reflections."
+authors = ["Horizon Android contributors"]
+license = "MIT"
+[sky]
+file = "sky.wgsl"
+name = "Soft warm sky"
+[[post]]
+file = "grade.wgsl"
+depth = false
+name = "Warm tonemap"

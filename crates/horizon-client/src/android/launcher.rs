@@ -25,6 +25,8 @@ mod risiya_content;
 mod skin;
 #[path = "wardrobe.rs"]
 mod wardrobe;
+#[path = "warm_shader.rs"]
+mod warm_shader;
 use horizon_client::{
     Result,
     gfx::Renderer,
@@ -145,6 +147,9 @@ impl Launcher {
             if let Err(error) = risiya_content::seed(&home) {
                 log::warn!("Could not seed requested server/shader: {error}");
             }
+        }
+        if !risiya && let Err(error) = warm_shader::seed(&home) {
+            log::warn!("Could not install optional Horizon Warm Lite: {error}");
         }
         let mut catalog = Catalog::new(&home);
         if crate::diagnostics::previous_unclean(&home) {

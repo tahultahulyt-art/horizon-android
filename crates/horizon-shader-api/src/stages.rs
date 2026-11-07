@@ -553,7 +553,23 @@ pub fn compose(pack: &Pack, kind: StageKind, file: &str) -> Composed {
             .parts
             .push((name.to_owned(), start..composed.text.len()));
     };
+    let no_depth = kind == StageKind::Post
+        && pack
+            .manifest
+            .post
+            .iter()
+            .find(|s| s.file == file)
+            .is_some_and(|s| !s.depth);
     let mut prelude = kind.prelude() + &texture_declarations(&pack.manifest.textures);
+    if no_depth {
+        let a = prelude.find("fn depth_at(").expect("post helper");
+        let b = a + prelude[a..].find("\n}").expect("helper end") + 2;
+        prelude.replace_range(a..b, "");
+        prelude = prelude.replace(
+            "@group(3) @binding(2) var scene_depth: texture_depth_2d;\n",
+            "",
+        );
+    }
     if kind == StageKind::Post {
         prelude += &post_target_declarations(&pack.manifest);
     }
@@ -575,6 +591,44 @@ pub fn compose(pack: &Pack, kind: StageKind, file: &str) -> Composed {
         }
     }
     push(file, pack.source(file).unwrap_or_default());
-    push("<entries>", kind.entries());
+    let entries = if no_depth {
+        kind.entries().replace("depth_at(in.uv)", "0.0")
+    } else {
+        kind.entries().to_owned()
+    };
+    push("<entries>", &entries);
     composed
+}
+
+#[cfg(test)]
+mod lite_tests {
+    use super::*;
+    #[test]
+    fn depth_opt_out_removes_sampler_and_helper_but_keeps_default_contract() {
+        for flag in ["depth=false\n", ""] {
+            let manifest = format!(
+                "schema=1\nid='test'\nname='Test'\nversion='1'\napi='0.1'\n[[post]]\nfile='p.wgsl'\n{flag}"
+            );
+            let p = Pack::from_files(
+                [
+                    ("horizon-shaders.toml".into(), manifest.into_bytes()),
+                    (
+                        "p.wgsl".into(),
+                        b"fn post(input:PostInput)->vec4<f32>{return input.color;}".to_vec(),
+                    ),
+                ]
+                .into(),
+            )
+            .unwrap();
+            let c = compose(&p, StageKind::Post, "p.wgsl");
+            assert_eq!(c.text.contains("depth_at(in.uv)"), flag.is_empty());
+            assert_eq!(c.text.contains("var scene_depth:"), flag.is_empty());
+            assert!(crate::check::check(&p).is_ok());
+        }
+    }
+    #[test]
+    fn depth_opt_out_rejects_direct_depth_reads() {
+        let p=Pack::from_files([("horizon-shaders.toml".into(),b"schema=1\nid='test'\nname='Test'\nversion='1'\napi='0.1'\n[[post]]\nfile='p.wgsl'\ndepth=false\n".to_vec()),("p.wgsl".into(),b"fn post(input:PostInput)->vec4<f32>{return vec4<f32>(depth_at(input.uv));}".to_vec())].into()).unwrap();
+        assert!(crate::check::check(&p).is_err());
+    }
 }

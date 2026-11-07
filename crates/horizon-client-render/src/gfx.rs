@@ -163,6 +163,7 @@ pub use hdr::Calibration as HdrCalibration;
 pub mod block_light;
 pub mod lightning;
 mod lod;
+mod native_guard;
 mod native_material;
 mod native_pack;
 mod native_post;
@@ -4914,14 +4915,36 @@ impl Renderer {
             weather_groups: [&self.weather.entity_layout, &self.weather.time_layout],
             pbr: self.pbr_maps.as_ref(),
         };
-        let (pack, labels) = native_pack::NativePack::new(
-            &self.device,
-            &self.queue,
-            &terrain,
-            report,
-            &constants,
-            lights,
-        )?;
+        if self.info.backend == wgpu::Backend::Gl && report.manifest.post.iter().any(|s| s.depth) {
+            return Err("This OpenGL shader path cannot sample native post depth reliably. Choose a depth=false Lite pack or leave shaders OFF.".into());
+        }
+        let limits = self.device.limits();
+        if limits.max_bind_groups < 4
+            || limits.max_sampled_textures_per_shader_stage < 12
+            || limits.max_samplers_per_shader_stage < 4
+        {
+            return Err("Native shader pack exceeds this GPU's binding limits".into());
+        }
+        let required =
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
+        if !self
+            .adapter
+            .get_texture_format_features(wgpu::TextureFormat::Depth32Float)
+            .allowed_usages
+            .contains(required)
+        {
+            return Err("Native shader depth sampling is unsupported by this GPU".into());
+        }
+        let (pack, labels) = native_guard::attempt(&self.device, || {
+            native_pack::NativePack::new(
+                &self.device,
+                &self.queue,
+                &terrain,
+                report,
+                &constants,
+                lights,
+            )
+        })?;
         self.native = pack.draws().then_some(pack);
         if self.native.is_some() {
             self.pack_post = None;
@@ -9717,3 +9740,6 @@ fn reported(l: horizon_hdr::wayland::Luminances) -> crate::graphics::Reported {
         peak: peak.clamp(200, 10_000),
     }
 }
+
+#[cfg(feature = "test-support")]
+pub mod native_probe;

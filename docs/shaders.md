@@ -236,3 +236,17 @@ without the pack.
 ## Next
 
 The overlay and lighting stages, and option values other than the defaults.
+
+### Experimental depth-free mobile post pass
+
+`[[post]] depth = false` gives `PostInput.depth = 0` and removes `scene_depth` and `depth_at`.
+Use it for colour-only passes, never effects needing scene depth. The default remains true.
+The mobile OpenGL path currently refuses native post packs with depth enabled because the
+full GL pipeline reproduced an invalid shadow-sampler translation. Shader validation alone
+is not a full GL/device test. Horizon Warm Lite is original, inspired by BSL style, with no
+BSL code or assets. It uses no shadows, bloom, water mirror or scene-depth reads.
+
+Native activation errors turn the selected pack OFF. The active-shader journal remains
+armed while it runs and is cleared on a clean shutdown or OFF. If the process ends without
+that cleanup (including an ordinary Android process kill), the next game start conservatively
+clears a matching saved shader selection. A driver signal or OS kill is not catchable in-process.
