@@ -819,6 +819,7 @@ pub enum Opt {
     TouchVerticalMargin,
     TouchSensitivity,
     TouchAimStabilizer,
+    RisiyaAnimations,
     TouchAimAssist,
     TouchAimAssistStrength,
     TouchSensitivityHorizontal,

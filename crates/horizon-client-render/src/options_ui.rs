@@ -202,6 +202,7 @@ impl Opt {
             Opt::TouchVerticalMargin => "HUD margins: top / bottom",
             Opt::TouchSensitivity => "Touch sensitivity",
             Opt::TouchAimStabilizer => "Shield Mode",
+            Opt::RisiyaAnimations => "Risiya Animations",
             Opt::TouchAimAssist => "Target Stick",
             Opt::TouchAimAssistStrength => "Target Stick strength",
             Opt::TouchSensitivityHorizontal => "Horizontal sensitivity",
@@ -571,6 +572,11 @@ impl Opt {
             Opt::TouchAimAssistStrength => {
                 Some(format!("{:.0}%", s.touch.aim_assist_strength * 100.0))
             }
+            Opt::RisiyaAnimations => Some(
+                ["Off", "Lite", "Full", "Reduced motion"]
+                    [s.touch.risiya_animations.min(3) as usize]
+                    .into(),
+            ),
             Opt::TouchAimAssist => Some(if s.touch.aim_assist { "On" } else { "Off" }.into()),
             Opt::TouchAimStabilizer => {
                 Some(if s.touch.aim_stabilizer { "On" } else { "Off" }.into())
@@ -1143,6 +1149,9 @@ impl Opt {
             Opt::TouchLeftHand => s.touch.left_handed ^= true,
             Opt::TouchSprintButton => s.touch.sprint_button ^= true,
             Opt::TouchAimStabilizer => s.touch.aim_stabilizer ^= true,
+            Opt::RisiyaAnimations => {
+                s.touch.risiya_animations = (s.touch.risiya_animations.min(3) + 1) % 4
+            }
             Opt::TouchAimAssist => s.touch.aim_assist ^= true,
             Opt::TouchSprintToggle => s.touch.sprint_toggle ^= true,
             Opt::TouchInventoryControls => s.touch.inventory_controls ^= true,
@@ -2093,6 +2102,11 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     if let Some(key) = key.filter(|key| lang::has(key)) {
         tip = Some(tr(&key));
     }
+    if let Act::Cycle(Opt::RisiyaAnimations) = act {
+        tip = Some(Text::literal(
+            "Original first-person cosmetic motion. Lite: no idle sway. Full: extra sway. Reduced: gentle motion. Off restores stock. No damage, reach or action timing changes.",
+        ));
+    }
     if let Act::Cycle(Opt::TouchAimAssist) = act {
         tip = Some(Text::literal(
             "Requires Shield Mode and crosshair controls. Adds small automatic corrections near visible other players, only while your finger moves. No attack or full lock. Strength 0-30%. Default off. Follow server rules; aim assist may be prohibited.",
@@ -2831,6 +2845,9 @@ impl OptionsUi {
                     Opt::TouchButtonScale,
                     Opt::TouchCircleSize,
                 ]));
+                if option_env!("HORIZON_ANDROID_VARIANT") == Some("risiya") {
+                    rows.push(Row::Big(Opt::RisiyaAnimations));
+                }
                 rows.push(Row::Big(Opt::Sensitivity));
                 rows.push(Row::Buttons(
                     button(
@@ -2852,6 +2869,9 @@ impl OptionsUi {
             }
             Page::Touch => {
                 let mut rows = vec![Row::Big(Opt::TouchMode)];
+                if option_env!("HORIZON_ANDROID_VARIANT") == Some("risiya") {
+                    rows.push(Row::Big(Opt::RisiyaAnimations));
+                }
                 rows.extend(pairs(&[
                     Opt::TouchCrosshairGestures,
                     Opt::TouchAttackButtonLook,

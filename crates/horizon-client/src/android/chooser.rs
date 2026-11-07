@@ -26,6 +26,7 @@ pub(super) enum TouchValue {
     Opacity,
     Sensitivity,
     Stabilizer,
+    Animations,
     Assist,
     AssistStrength,
     Mouse,
@@ -39,6 +40,7 @@ impl TouchValue {
             Self::Opacity => "Control opacity",
             Self::Sensitivity => "Touch sensitivity",
             Self::Stabilizer => "Shield Mode",
+            Self::Animations => "Risiya Animations",
             Self::Assist => "Shield Mode: Target Stick",
             Self::AssistStrength => "Target Stick strength",
             Self::Mouse => "Virtual mouse sensitivity",
@@ -49,6 +51,7 @@ impl TouchValue {
     }
     pub fn current(self, s: &horizon_client::touch::Settings) -> u32 {
         (match self {
+            Self::Animations => s.risiya_animations as f32,
             Self::Opacity => s.control_opacity * 100.0,
             Self::Sensitivity => s.sensitivity * 100.0,
             Self::AssistStrength => s.aim_assist_strength * 100.0,
@@ -74,6 +77,9 @@ impl TouchValue {
         .round() as u32
     }
     pub fn value_label(self, value: u32) -> String {
+        if self == Self::Animations {
+            return horizon_client::risiya_animation::LABELS[value.min(3) as usize].into();
+        }
         if matches!(self, Self::Stabilizer | Self::Assist) {
             return if value == 0 { "Off" } else { "On" }.into();
         }
@@ -81,6 +87,7 @@ impl TouchValue {
     }
     pub fn presets(self) -> Vec<u32> {
         match self {
+            Self::Animations => vec![0, 1, 2, 3],
             Self::Stabilizer | Self::Assist => vec![0, 1],
             Self::AssistStrength => vec![0, 5, 10, 15, 20, 25, 30],
             Self::Opacity => (0..=100).step_by(10).collect(),
@@ -94,6 +101,7 @@ impl TouchValue {
     pub fn apply(self, s: &mut horizon_client::touch::Settings, value: u32) {
         let v = value as f32 / 100.0;
         match self {
+            Self::Animations => s.risiya_animations = value.min(3) as u8,
             Self::Stabilizer => s.aim_stabilizer = value != 0,
             Self::Assist => s.aim_assist = value != 0,
             Self::AssistStrength => s.aim_assist_strength = v,
@@ -260,6 +268,18 @@ impl Launcher {
                     )
                 })
                 .collect();
+                if horizon_client::risiya_animation::available() {
+                    let v = TouchValue::Animations;
+                    choices.insert(
+                        0,
+                        (
+                            v.label().into(),
+                            v.value_label(v.current(&touch)),
+                            Action::TouchValue(v),
+                            false,
+                        ),
+                    );
+                }
                 choices.insert(
                     0,
                     (
@@ -283,7 +303,9 @@ impl Launcher {
                 }
                 (
                     value.label(),
-                    if value == TouchValue::Stabilizer {
+                    if value == TouchValue::Animations {
+                        "Original cosmetic first-person motion. Off restores stock. Lite avoids idle sway; Full adds sway; Reduced uses gentler motion. Inspect cancels for attack/use. No gameplay changes. Applies on next Play."
+                    } else if value == TouchValue::Stabilizer {
                         "Smooths small touch movements. Adds a small input delay. No target tracking, lock-on or auto-attack. Default off."
                     } else if matches!(value, TouchValue::Assist | TouchValue::AssistStrength) {
                         "Requires Shield Mode and crosshair controls. Small automatic corrections near visible other players, only while your finger moves. No attacks or full lock. Strength 0-30%. Default off. Follow server rules; aim assist may be prohibited."

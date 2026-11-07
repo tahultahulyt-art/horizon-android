@@ -236,6 +236,20 @@ impl TouchControls {
     fn dynamic_joystick(&self) -> bool {
         self.settings.dynamic_joystick && self.settings.mode != Mode::Dpad
     }
+    /// Exact normalized rectangle overlap for an optional overlay. Existing controls win.
+    pub fn overlaps_controls(&self, rect: [f32; 4]) -> bool {
+        let overlaps = |b: [f32; 4]| {
+            rect[0] < b[0] + b[2]
+                && rect[0] + rect[2] > b[0]
+                && rect[1] < b[1] + b[3]
+                && rect[1] + rect[3] > b[1]
+        };
+        Control::ALL
+            .into_iter()
+            .any(|c| self.visible(c) && overlaps(self.placement(c).rect(self.aspect())))
+            || (0..self.settings.custom_buttons.len())
+                .any(|i| overlaps(self.custom_placement(i).rect(self.aspect())))
+    }
     pub fn control_at_point(&self, point: [f32; 2]) -> bool {
         self.custom_at(point).is_some() || self.control_at(point).is_some()
     }
@@ -2058,5 +2072,20 @@ mod tests {
         touch.update(2, center, false, true);
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
+    }
+}
+
+#[cfg(test)]
+mod optional_overlay_tests {
+    use super::*;
+    #[test]
+    fn inspect_overlay_never_steals_existing_rects() {
+        let mut t = TouchControls::default();
+        t.viewport(1280, 720);
+        let before = serde_json::to_value(&t.settings).unwrap();
+        let attack = t.placement(Control::Attack).rect(t.aspect());
+        assert!(t.overlaps_controls(attack));
+        assert!(!t.overlaps_controls([0.001, 0.001, 0.001, 0.001]));
+        assert_eq!(serde_json::to_value(&t.settings).unwrap(), before);
     }
 }
