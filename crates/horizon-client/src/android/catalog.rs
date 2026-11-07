@@ -281,6 +281,7 @@ impl Catalog {
             .filter(|e| game.join(&e.file).is_file())
             .map(|e| (e.source, e.project.clone()))
             .collect();
+        let on = horizon_client::mod_list::ModList::load(&game);
         let settings = horizon_client::settings::Settings::load(&game.join("options.txt"));
         self.local.clear();
         for kind in horizon_client::content_files::Kind::ALL {

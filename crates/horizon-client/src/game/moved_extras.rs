@@ -14,10 +14,12 @@ impl super::Game<'_> {
 mod with_mods {
     use super::super::Game;
     use horizon_client::{
-        moved_extras::{self, Moved},
+        moved_extras::Moved,
         text::{self, Text},
     };
-    use std::sync::mpsc::{Receiver, channel};
+    use std::sync::mpsc::Receiver;
+    #[cfg(not(target_os = "android"))]
+    use {horizon_client::moved_extras, std::sync::mpsc::channel};
 
     type Done = Vec<(&'static Moved, Result<(), String>)>;
 

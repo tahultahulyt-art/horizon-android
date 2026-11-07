@@ -24,7 +24,10 @@ class LoaderOnly(unittest.TestCase):
         self.assertNotIn('Built-in mods below', pages)
         for label in ['Kusobo Loader v1', 'Install sample', 'Export template', 'Import file']:
             self.assertIn(label, pages)
-        self.assertNotIn('bundled_enabled', read('crates/horizon-client/src/android/catalog.rs'))
+        catalog = read('crates/horizon-client/src/android/catalog.rs')
+        self.assertNotIn('bundled_enabled', catalog)
+        self.assertIn('let on = horizon_client::mod_list::ModList::load(&game);', catalog)
+        self.assertIn('on.enabled.contains(id)', catalog)
         self.assertNotIn('ANDROID_BUNDLED', read('crates/horizon-client-render/src/mod_list.rs'))
 
     def test_no_android_automatic_migration(self):
