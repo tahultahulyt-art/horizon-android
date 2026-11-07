@@ -55,6 +55,11 @@ pub struct Post {
     sampler: wgpu::Sampler,
     copy: wgpu::RenderPipeline,
     fxaa: wgpu::RenderPipeline,
+    blur: wgpu::RenderPipeline,
+    blur_uniform: wgpu::Buffer,
+    pub motion_blur: bool,
+    blur_on: bool,
+    blur_previous: Option<(Mat4, std::time::Instant)>,
     format: wgpu::TextureFormat,
     /// World resolution relative to the window (0.5..=2.0).
     pub scale: f32,
@@ -80,6 +85,12 @@ impl Post {
             label: Some("Horizon post"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../world_post.wgsl").into()),
         });
+        let blur_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Motion blur camera"),
+            size: 80,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Horizon post bindings"),
             entries: &[
@@ -97,6 +108,16 @@ impl Post {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -235,6 +256,11 @@ impl Post {
         Self {
             copy: pipeline("fs_copy", &pipeline_layout, format),
             fxaa: pipeline("fs_fxaa", &pipeline_layout, format),
+            blur: pipeline("fs_motion_blur", &pipeline_layout, format),
+            blur_uniform,
+            motion_blur: false,
+            blur_on: false,
+            blur_previous: None,
             layout,
             sampler,
             format,
@@ -249,6 +275,36 @@ impl Post {
             taa_previous: None,
             taa_this_frame: bytemuck::Zeroable::zeroed(),
         }
+    }
+
+    /// Camera rotation only: no depth reads, history textures or object ghosting.
+    /// Shader packs/title screens do not use this pass; reset after gaps/cuts.
+    pub fn update_motion(&mut self, playing: bool, view: Mat4, queue: &wgpu::Queue) {
+        self.blur_on = self.motion_blur && playing;
+        if !self.blur_on {
+            self.blur_previous = None;
+            return;
+        }
+        let now = std::time::Instant::now();
+        let previous = self
+            .blur_previous
+            .filter(|(_, time)| now.duration_since(*time).as_secs_f32() <= 0.1);
+        let reproject = if self.blur_on {
+            previous.map_or(Mat4::IDENTITY, |(old, _)| old * view.inverse())
+        } else {
+            Mat4::IDENTITY
+        };
+        self.blur_previous = self.blur_on.then_some((view, now));
+        // 50% shutter, at most 20 screen pixels. Keep FXAA's centre sample.
+        let mut data = [0.0f32; 20];
+        data[..16].copy_from_slice(&reproject.to_cols_array());
+        data[16] = if previous.is_some() && self.blur_on {
+            0.5
+        } else {
+            0.0
+        };
+        data[17] = if self.antialias { 1.0 } else { 0.0 };
+        queue.write_buffer(&self.blur_uniform, 0, bytemuck::cast_slice(&data));
     }
 
     /// Whether TAA is supported on this GPU/backend.
@@ -308,7 +364,7 @@ impl Post {
         window: [u32; 2],
         always: bool,
     ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
-        if self.scale == 1.0 && !self.antialias && !self.taa_on && !always {
+        if self.scale == 1.0 && !self.antialias && !self.taa_on && !self.blur_on && !always {
             self.target = None;
             return None;
         }
@@ -427,6 +483,10 @@ impl Post {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.blur_uniform.as_entire_binding(),
+                },
             ],
         })
     }
@@ -504,7 +564,9 @@ impl Post {
             pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
             pass.set_scissor_rect(x, y, w, h);
         }
-        pass.set_pipeline(if self.antialias {
+        pass.set_pipeline(if self.blur_on {
+            &self.blur
+        } else if self.antialias {
             &self.fxaa
         } else {
             &self.copy

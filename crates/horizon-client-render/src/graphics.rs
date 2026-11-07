@@ -383,6 +383,8 @@ pub struct Graphics {
     pub resolution_scale: u32,
     /// FXAA over the world.
     pub fxaa: bool,
+    /// Optional camera-turn motion blur. Off by default.
+    pub motion_blur: bool,
     /// TAA over the world (FXAA is off while it is on).
     pub taa: bool,
     /// TAA upscaling; anything but `Native` comes with `taa` on.
@@ -442,6 +444,7 @@ impl Default for Graphics {
             overlay: Overlay::Off,
             resolution_scale: 100,
             fxaa: false,
+            motion_blur: false,
             taa: false,
             upscaling: Upscaling::Native,
             screenshot_quality: 1,
@@ -517,6 +520,7 @@ impl Graphics {
                 "workers" => g.workers = number(g.workers).min(64),
                 "resolutionScale" => g.resolution_scale = number(g.resolution_scale).clamp(50, 200),
                 "fxaa" => g.fxaa = flag(g.fxaa),
+                "motionBlur" => g.motion_blur = flag(g.motion_blur),
                 "taa" => g.taa = flag(g.taa),
                 "upscaling" => g.upscaling = Upscaling::parse(value),
                 "screenshotQuality" => {
@@ -560,7 +564,7 @@ impl Graphics {
     }
     pub fn serialize(&self) -> String {
         format!(
-            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\ntextureBudgetMiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\nditherCutoutMips:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\ntaa:{}\nupscaling:{}\nscreenshotQuality:{}\nhdr:{}\nhdrPaperWhite:{}\nhdrPeak:{}\nhdrBlackLevel:{}\nhdrUiBrightness:{}\nhdrKey:{}\nbatteryMode:{}\nshadowCache:{}\ngraphicsApi:{}\npickedShaderPack:{}\n",
+            "preset:{}\nlodDistance:{}\nfarDetail:{}\ncaveCulling:{}\nentityCulling:{}\nchunkUpdates:{}\nuploadBudgetKiB:{}\ntextureBudgetMiB:{}\nsky:{}\nfog:{}\nweather:{}\nanimatedTextures:{}\nditherCutoutMips:{}\npresentMode:{}\nframePacing:{}\nworkers:{}\noverlay:{}\nresolutionScale:{}\nfxaa:{}\nmotionBlur:{}\ntaa:{}\nupscaling:{}\nscreenshotQuality:{}\nhdr:{}\nhdrPaperWhite:{}\nhdrPeak:{}\nhdrBlackLevel:{}\nhdrUiBrightness:{}\nhdrKey:{}\nbatteryMode:{}\nshadowCache:{}\ngraphicsApi:{}\npickedShaderPack:{}\n",
             self.preset.name(),
             self.lod_distance,
             self.far_detail.name(),
@@ -587,6 +591,7 @@ impl Graphics {
             },
             self.resolution_scale,
             bool_text(self.fxaa),
+            bool_text(self.motion_blur),
             bool_text(self.taa),
             self.upscaling.name(),
             self.screenshot_quality,
@@ -743,6 +748,7 @@ mod tests {
             overlay: Overlay::Graph,
             resolution_scale: 75,
             fxaa: true,
+            motion_blur: true,
             taa: true,
             upscaling: Upscaling::Balanced,
             screenshot_quality: 4,

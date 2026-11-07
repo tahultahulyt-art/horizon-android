@@ -40,6 +40,7 @@ pub enum H {
     Overlay,
     ResolutionScale,
     Antialiasing,
+    MotionBlur,
     Upscaling,
     ScreenshotQuality,
     Hdr,
@@ -133,7 +134,21 @@ pub fn rows(level: Level) -> Vec<Row> {
         "Sets the options below together. Changing one makes it Custom.",
     );
     let mut rows = match level {
-        Level::Simple => vec![preset, render, lod, far, fov, fps, vsync, gui],
+        Level::Simple => vec![
+            preset,
+            render,
+            lod,
+            far,
+            fov,
+            fps,
+            vsync,
+            gui,
+            h(
+                H::MotionBlur,
+                Medium,
+                "Blurs camera turns, not HUD or hand. No FPS boost; costs GPU time. Off with shader packs.",
+            ),
+        ],
         Level::Hdr => vec![
             Row::Header("HDR"),
             h(
@@ -280,6 +295,11 @@ pub fn rows(level: Level) -> Vec<Row> {
                 H::Antialiasing,
                 Medium,
                 "Smooths jagged edges. FXAA: softer. TAA: smoothest, moving things may trail.",
+            ),
+            h(
+                H::MotionBlur,
+                Medium,
+                "Blurs camera turns, not HUD or hand. No FPS boost; costs GPU time. Off with shader packs.",
             ),
             h(
                 H::Upscaling,
@@ -556,6 +576,7 @@ impl H {
                     (false, false) => "Off",
                 },
             ),
+            H::MotionBlur => labelled("Motion Blur", on_off(g.motion_blur)),
             H::Upscaling => labelled("Upscaling", g.upscaling.label()),
             H::ScreenshotQuality => {
                 labelled("Screenshot Quality", format!("{}x", g.screenshot_quality))
@@ -647,6 +668,7 @@ impl H {
             H::FarDetail => {
                 g.far_detail = step(&[FarDetail::Full, FarDetail::Reduced], g.far_detail, back)
             }
+            H::MotionBlur => g.motion_blur = !g.motion_blur,
             H::CaveCulling => g.cave_culling = !g.cave_culling,
             H::EntityCulling => g.entity_culling = !g.entity_culling,
             H::Sky => g.sky = !g.sky,
@@ -1467,6 +1489,26 @@ impl GraphicsUi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_blur_is_opt_in_and_toggle_persists() {
+        let mut s = Settings::default();
+        let item = Item::Horizon(H::MotionBlur);
+        assert!(!s.horizon.motion_blur);
+        H::MotionBlur.cycle(&mut s, false);
+        assert!(s.horizon.motion_blur);
+        let saved = s.horizon.serialize();
+        assert!(crate::graphics::Graphics::parse(&saved).motion_blur);
+        H::MotionBlur.cycle(&mut s, false);
+        assert!(!s.horizon.motion_blur);
+        for level in [Level::Simple, Level::Advanced] {
+            assert!(
+                rows(level)
+                    .iter()
+                    .any(|r| matches!(r, Row::Setting(row) if row.item == item))
+            );
+        }
+    }
 
     #[test]
     fn hdr_settings_open_where_hdr_is_offered() {

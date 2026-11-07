@@ -27,7 +27,7 @@ fn luma(c: vec3<f32>) -> f32 {
 }
 
 // FXAA 3.11 (console quality): blend along the local edge direction.
-@fragment fn fs_fxaa(in: PostOut) -> @location(0) vec4<f32> {
+fn fxaa_color(in: PostOut) -> vec4<f32> {
     let texel = 1.0 / vec2<f32>(textureDimensions(world));
     let centre = textureSampleLevel(world, world_sampler, in.uv, 0.0);
     let rgb_m = centre.rgb;
@@ -55,6 +55,8 @@ fn luma(c: vec3<f32>) -> f32 {
     }
     return vec4(b, centre.a);
 }
+
+@fragment fn fs_fxaa(in: PostOut) -> @location(0) vec4<f32> { return fxaa_color(in); }
 
 // TAA (`world_post.rs`): blend this frame into the history, reprojected from the
 // depth buffer through the camera's motion and clamped to this frame's 3x3
@@ -130,4 +132,34 @@ fn sample_history(uv: vec2<f32>) -> vec3<f32> {
     let share = 0.1 * exp(-2.0 * dot(off, off));
     // The alpha carries the emissive mark through to HDR output (hdr.wgsl).
     return vec4(mix(past, centre.rgb, share), centre.a);
+}
+
+// GLES-friendly camera-turn blur: no depth textureLoad or previous image.
+// Far-plane reprojection provides rotational screen velocity only.
+struct MotionBlur {
+    reproject: mat4x4<f32>,
+    params: vec4<f32>,
+};
+@group(0) @binding(5) var<uniform> motion_blur: MotionBlur;
+@fragment fn fs_motion_blur(in: PostOut) -> @location(0) vec4<f32> {
+    let centre = textureSampleLevel(world, world_sampler, in.uv, 0.0);
+    var base = centre.rgb;
+    if motion_blur.params.y > 0.5 { base = fxaa_color(in).rgb; }
+    let clip = vec4(in.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
+    let prior = motion_blur.reproject * clip;
+    if prior.w <= 0.0001 || motion_blur.params.x == 0.0 { return vec4(base, centre.a); }
+    let prior_uv = prior.xy / prior.w * vec2(0.5, -0.5) + vec2(0.5);
+    let pixels = (in.uv - prior_uv) * vec2<f32>(textureDimensions(world));
+    let speed = length(pixels);
+    // A large cut/FOV jump is a reset, not a streak across the display.
+    if speed < 0.5 || speed > 200.0 { return vec4(base, centre.a); }
+    let delta = (in.uv - prior_uv) * motion_blur.params.x * min(1.0, 20.0 / max(speed, 0.001));
+    var rgb = base * 0.4;
+    let texel = 0.5 / vec2<f32>(textureDimensions(world));
+    for (var i = 0; i < 4; i++) {
+        let offset = (f32(i) / 3.0 - 0.5) * delta;
+        let uv = clamp(in.uv + offset, texel, vec2(1.0) - texel);
+        rgb += textureSampleLevel(world, world_sampler, uv, 0.0).rgb * 0.15;
+    }
+    return vec4(rgb, centre.a);
 }

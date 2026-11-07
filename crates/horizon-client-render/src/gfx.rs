@@ -4795,11 +4795,19 @@ impl Renderer {
         true
     }
     /// `upscale`: output pixels per rendered pixel, for TAA to rebuild (1: native).
-    pub fn set_world_post(&mut self, scale: f32, antialias: bool, taa: bool, upscale: f32) {
+    pub fn set_world_post(
+        &mut self,
+        scale: f32,
+        antialias: bool,
+        taa: bool,
+        upscale: f32,
+        motion_blur: bool,
+    ) {
         let taa = taa && self.world_post.supports_taa();
         self.world_post.scale = scale.clamp(0.25, 2.0);
         self.world_post.antialias = antialias && !taa;
         self.world_post.taa = taa;
+        self.world_post.motion_blur = motion_blur;
         self.world_post.upscale = if taa { upscale.clamp(1.0, 4.0) } else { 1.0 };
     }
     pub fn world_render_size(&self) -> [u32; 2] {
@@ -5453,6 +5461,7 @@ impl Renderer {
         let taa = !frame.title
             && self.pack_post.as_ref().is_none_or(|p| p.1.is_none())
             && self.native.as_ref().is_none_or(|n| n.post.is_none());
+        self.world_post.update_motion(taa, view_proj, &self.queue);
         let jittered = self.world_post.jitter(
             [self.config.width, self.config.height],
             taa,
