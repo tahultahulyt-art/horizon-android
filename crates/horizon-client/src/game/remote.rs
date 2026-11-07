@@ -5549,6 +5549,8 @@ impl Game<'_> {
             return Ok(());
         }
         let stick = self.pad_move();
+        #[cfg(target_os = "android")]
+        let stick = stick.filter(|_| !super::freecam_runtime::active());
         if self.player.is_none() {
             return Ok(());
         }
@@ -6876,6 +6878,8 @@ impl Game<'_> {
     }
     /// Minecraft.startUseItem: use one crosshair target, then the item itself.
     fn remote_use(&mut self) {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::active() { return; }
         // Minecraft.startUseItem returns before resetting rightClickDelay
         // while a survival block break is active.
         if self.remote.as_ref().is_some_and(|r| r.is_destroying) {
@@ -8006,6 +8010,8 @@ impl Game<'_> {
     }
 
     pub(super) fn remote_start_attack(&mut self) -> bool {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::active() { return false; }
         if self.clicks.miss_time > 0 {
             return false;
         }

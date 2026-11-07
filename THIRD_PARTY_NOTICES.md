@@ -113,3 +113,10 @@ Keystrokes display. Original authors have not tested or endorsed this APK.
 ## Kusobo Coordinates sample
 
 The sandboxed coordinates sample and source template derive from Horizon's MIT-licensed coords-hud SDK example. Copyright (c) 2026 Ludovic Marie and the Horizon contributors. The original MIT license is included in each archive. Kusobo is a management layer, not a replacement or renaming of the Horizon SDK/API.
+
+## Freecam+ Android port
+
+Freecam+ 1.0.1 runtime by umbx-dot, MIT License, source revision c524e2d6d027150d7aad3b2abe68a720cb2065d3.
+Source: https://github.com/umbx-dot/horizon-freecam
+Copyright and full license retained in third_party/freecam_plus/LICENSE.
+Modified for Android touch/analog control, reset and fail-off handling; no dynamic .hnmod compiler or loader added.

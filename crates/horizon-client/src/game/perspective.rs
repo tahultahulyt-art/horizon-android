@@ -242,6 +242,8 @@ impl Game<'_> {
     /// front of) it, pulled in where visual shapes are in the way. Returns the
     /// position, yaw and pitch to render from.
     pub(super) fn camera_view(&mut self, partial: f32) -> Option<(glam::DVec3, f32, f32)> {
+        #[cfg(target_os = "android")]
+        if let Some((at, yaw, pitch)) = super::freecam_runtime::view(partial) { return Some((glam::DVec3::from_array(at), yaw, pitch)); }
         // Minecraft.cameraEntity: a server's spectator camera on a mob or
         // another player.
         let (entity, descending) = match self.camera_mob() {
@@ -529,6 +531,8 @@ impl Game<'_> {
     /// The model's old pitch is the player's `xRotO`, which the turn moves
     /// with `xRot` (`turn_rotation`).
     pub(super) fn turn_player(&mut self, xo: f64, yo: f64) {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::turn(xo, yo) { return; }
         let pitch_o = self.player_model.as_ref().map(|m| m.previous_head_pitch);
         let rotation = turn_rotation(self.yaw, self.pitch, pitch_o, xo, yo);
         self.yaw = rotation.y_rot;

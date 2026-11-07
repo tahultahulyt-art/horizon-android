@@ -1144,7 +1144,10 @@ impl Game<'_> {
     /// Once a tick, in every `Game`: the window's (in single player, on LAN
     /// and on servers), and the server's own (`native_window` is false
     /// there: the single player server thread, a dedicated server).
-    pub(super) fn native_tick(&mut self) {}
+    pub(super) fn native_tick(&mut self) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_tick();
+    }
     /// Before an eligible targeted block's selection outline is built.
     /// Cancel skips only the default block highlight, after normal HUD and game-mode gates.
     pub(super) fn native_block_highlight(
@@ -1290,10 +1293,14 @@ impl Game<'_> {
     /// (`key.keyboard.z`, `key.mouse.left`): keys on any screen (check
     /// `native_playing`), mouse buttons while playing. Repeats are left out.
     pub(super) fn native_key(&mut self, key: &str, pressed: bool) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_key(key, pressed);
         let _ = (key, pressed);
     }
     /// Wheel steps while playing: set `claimed` to keep them from the hotbar.
     pub(super) fn native_wheel(&mut self, steps: f32, claimed: &mut bool) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_wheel(steps, claimed);
         let _ = (steps, claimed);
     }
     /// A command typed or clicked in chat, without its slash, before the
@@ -1359,16 +1366,22 @@ impl Game<'_> {
     }
     /// Options > Mods lists the native mods: push yours.
     pub(super) fn native_mods(&mut self, mods: &mut Vec<NativeMod>) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_list(mods);
         let _ = mods;
     }
     /// The buttons of mod `mod_id`'s settings page, under its keys: push
     /// their labels when it is yours. Asked again each time the page opens
     /// and after each click.
     pub(super) fn native_settings(&mut self, mod_id: &str, buttons: &mut Vec<String>) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_page(mod_id, buttons);
         let _ = (mod_id, buttons);
     }
     /// Button `button` of mod `mod_id`'s settings page was clicked.
     pub(super) fn native_settings_click(&mut self, mod_id: &str, button: usize) {
+        #[cfg(target_os = "android")]
+        self.mobile_freecam_click(mod_id, button);
         let _ = (mod_id, button);
     }
     /// The player did `event` on mod `mod_id`'s panel (`native_panel_items`):

@@ -356,6 +356,8 @@ impl Game<'_> {
     /// swung and spent (or, with infinite materials, kept) the item, or that
     /// started using it.
     pub(super) fn use_with_hand(&mut self) -> Result<()> {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::active() { return Ok(()); }
         if self.clicks.destroying.active || self.hands_busy() {
             return Ok(());
         }

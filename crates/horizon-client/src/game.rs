@@ -56,6 +56,8 @@ mod agent_settings;
 mod allays;
 #[cfg(target_os = "android")]
 mod android_input;
+mod freecam_runtime;
+mod mobile_freecam;
 mod armor_stands;
 mod atlas_slots;
 mod banners;
@@ -4094,6 +4096,8 @@ impl Game<'_> {
         self.process_level_events()
     }
     fn attack_block(&mut self, pos: [i32; 3]) -> Result<()> {
+        #[cfg(target_os = "android")]
+        if freecam_runtime::active() { return Ok(()); }
         let note = self.with_level(|b, level, ticks| {
             b.attack_block(level, ticks, BlockPos::new(pos[0], pos[1], pos[2]))
         });
@@ -6889,6 +6893,8 @@ impl Game<'_> {
         self.tick_server_mods();
         let camera_eye = self.camera_eye_height();
         let stick = self.pad_move();
+        #[cfg(target_os = "android")]
+        let stick = stick.filter(|_| !freecam_runtime::active());
         if self.riding.is_some() && self.player.is_some() {
             let playing = self.screen == Screen::Playing && !self.dialog_open();
             let held = |k| playing && self.keys.contains(&k);
@@ -7426,6 +7432,8 @@ impl Game<'_> {
     /// A key event after rebinding, as the default key of its mapping (the
     /// keyboard and controllers both end here).
     fn mapped_key(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
+        #[cfg(target_os = "android")]
+        if self.mobile_freecam_move_key(key, pressed) { return Ok(()); }
         #[cfg(target_os = "android")]
         if !pressed && self.android_custom_key_held(key) {
             return Ok(());
@@ -11066,6 +11074,8 @@ impl Game<'_> {
     }
     /// Player.attack with the attack-strength charge, crits and knockback.
     fn attack(&mut self) -> bool {
+        #[cfg(target_os = "android")]
+        if freecam_runtime::active() { return false; }
         if self.spectator() {
             return false;
         }
@@ -15588,6 +15598,8 @@ impl Game<'_> {
     /// A mouse button while playing (window or control socket).
     fn play_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         #[cfg(target_os = "android")]
+        if freecam_runtime::active() && self.native_playing() { return Ok(()); }
+        #[cfg(target_os = "android")]
         if !pressed && self.android_custom_mouse_held(button) {
             return Ok(());
         }
@@ -15933,6 +15945,7 @@ impl ApplicationHandler for Game<'_> {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         // Android may recreate the surface while the IME changes window size.
         // Preserve the text session; Android hides its window on real backgrounding.
+        self.mobile_freecam_stop();
         self.android_release_touch_keys(true);
         self.capture(false);
         self.keys.clear();
@@ -16071,6 +16084,8 @@ impl Game<'_> {
         id: WindowId,
         mut event: WindowEvent,
     ) {
+        #[cfg(target_os = "android")]
+        if matches!(&event, WindowEvent::Focused(false)) { self.mobile_freecam_stop(); }
         // A headless game has no window: its events (the frame, the control socket's input)
         // carry `WindowId::dummy()`.
         let ours = match &self.window {
@@ -20615,6 +20630,8 @@ fn new_event_loop() -> std::result::Result<EventLoop<()>, winit::error::EventLoo
 pub use launch_api::{UsageError, exit_code};
 
 pub fn run() -> Result<()> {
+    #[cfg(target_os = "android")]
+    freecam_runtime::reset();
     let Some(mut options) = Options::read()? else {
         return Ok(());
     };
