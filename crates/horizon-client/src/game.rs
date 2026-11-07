@@ -2429,9 +2429,6 @@ struct Game<'a> {
     /// The first-person equip heights and the items the hands show (with
     /// the slot each came from).
     heights: horizon_client::first_person::HandHeights,
-    risiya_motion: horizon_client::risiya_animation::State,
-    #[cfg(target_os = "android")]
-    risiya_inspect_finger: Option<u64>,
     /// The hands' lag behind the view (`LocalPlayer.xBob`, `yBob`); a new
     /// LocalPlayer (joining, respawning, changing dimension) starts at 0.
     sway: horizon_client::first_person::HandSway,
@@ -13221,11 +13218,6 @@ impl Game<'_> {
     /// both hands in view space, converted to camera-relative world space.
     fn hand_geometry(&mut self, alpha: f64) -> Vec<Vertex> {
         let mut out = Vec::new();
-        let motion_mode = if horizon_client::risiya_animation::available() {
-            self.settings.touch.risiya_animations.min(3)
-        } else {
-            0
-        };
         // GameRenderer.renderItemInHand: F1 hides the hand with the HUD.
         if self.spectator()
             || self.ui.hide_gui
@@ -13237,7 +13229,6 @@ impl Game<'_> {
                 .is_none_or(|p| p.health.dead_or_dying())
             || self.screen == Screen::Dead
         {
-            self.risiya_motion.clear();
             return out;
         }
         let a = alpha as f32;
@@ -13269,32 +13260,6 @@ impl Game<'_> {
             .as_ref()
             .is_some_and(|p| p.auto_spin_attack_ticks > 0);
         let items = self.visible_hand_items();
-        let motion_time = (self.ticks as f64 / 20.0 + alpha / 20.0) as f32;
-        let (motion_speed, motion_ground, motion_vertical, motion_sprint) =
-            self.player.as_ref().map_or((0.0, true, 0.0, false), |p| {
-                (
-                    ((p.velocity.x * p.velocity.x + p.velocity.z * p.velocity.z).sqrt() * 5.0)
-                        as f32,
-                    p.ground.on_ground,
-                    p.velocity.y as f32,
-                    p.sprinting,
-                )
-            });
-        let motion_blocked = used_hand.is_some()
-            || spinning
-            || self.swing.swinging()
-            || self.left
-            || self.right
-            || self.screen != Screen::Playing;
-        let inspect = self.risiya_motion.frame(
-            motion_time,
-            motion_mode != 0,
-            self.selected,
-            items[0].as_ref().map(|s| &*s.item),
-            motion_blocked,
-            motion_ground,
-        );
-        let landing = self.risiya_motion.landing(motion_time);
         let off_hand_empty = items[1].is_none();
         for (i, (hand, item)) in Hand::BOTH.into_iter().zip(items).enumerate() {
             if !shown[i] {
@@ -13331,31 +13296,8 @@ impl Game<'_> {
                     continue;
                 }
                 // renderPlayerArm
-                let extra = horizon_client::risiya_animation::transform(
-                    horizon_client::risiya_animation::Motion {
-                        mode: motion_mode,
-                        style: horizon_client::risiya_animation::Style::Empty,
-                        left,
-                        attack,
-                        time: motion_time,
-                        speed: motion_speed,
-                        sprint: motion_sprint,
-                        vertical: motion_vertical,
-                        landing,
-                        inspect,
-                    },
-                );
-                let base = if motion_mode == 0 {
-                    to_world
-                } else {
-                    to_world * extra
-                };
-                let m = base
-                    * horizon_client::first_person::player_arm_pose(
-                        left,
-                        horizon_client::risiya_animation::equip(motion_mode, inverse_height),
-                        attack,
-                    );
+                let m = to_world
+                    * horizon_client::first_person::player_arm_pose(left, inverse_height, attack);
                 self.first_person_arm(left, m, packed, &mut out);
                 continue;
             };
@@ -13460,43 +13402,8 @@ impl Game<'_> {
                 }
                 _ => ItemPose::Swing,
             };
-            let style = horizon_client::risiya_animation::style(Some(&stack.item));
-            let mode = if used_hand.is_some() || spinning || !matches!(pose, ItemPose::Swing) {
-                0
-            } else {
-                motion_mode
-            };
-            let extra = horizon_client::risiya_animation::transform(
-                horizon_client::risiya_animation::Motion {
-                    mode,
-                    style,
-                    left,
-                    attack,
-                    time: motion_time,
-                    speed: motion_speed,
-                    sprint: motion_sprint,
-                    vertical: motion_vertical,
-                    landing,
-                    inspect: if hand == Hand::Main { inspect } else { 0.0 },
-                },
-            );
-            let mode = if style == horizon_client::risiya_animation::Style::Stock {
-                0
-            } else {
-                mode
-            };
-            let base = if mode == 0 {
-                to_world
-            } else {
-                to_world * extra
-            };
-            let m = base
-                * horizon_client::first_person::item_pose(
-                    left,
-                    horizon_client::risiya_animation::equip(mode, inverse_height),
-                    attack,
-                    pose,
-                );
+            let m = to_world
+                * horizon_client::first_person::item_pose(left, inverse_height, attack, pose);
             // Seeded by the player id plus the context ordinal.
             let (context, seed) = if left {
                 (
@@ -14789,9 +14696,6 @@ impl Game<'_> {
         // Load the profile's scheme before drawing the first frame or outline.
         #[cfg(target_os = "android")]
         self.pad.touch.viewport(size[0], size[1]);
-        if self.screen != Screen::Playing || self.dialog_open() {
-            self.risiya_motion.clear();
-        }
         let alpha = self.clock.fraction();
         // Camera.getCameraEntityPartialTicks: the view, the hand and the
         // player's own model stay smooth while the level is frozen.
@@ -15026,17 +14930,6 @@ impl Game<'_> {
             self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
             self.pad.touch.break_progress = self.touch_mining_progress();
             self.pad.touch.draw(&mut hud, &self.gui.atlas);
-            if let Some([x, y, w, h]) = self.risiya_inspect_button(hud.width, hud.height) {
-                hud.fill(&self.gui.atlas, x, y, w, h, 0x90000000);
-                hud.text(
-                    &self.gui.atlas,
-                    "Inspect",
-                    x + 6.0,
-                    y + 7.0,
-                    0xffffffff,
-                    true,
-                );
-            }
         }
         #[cfg(target_os = "android")]
         {
@@ -16569,11 +16462,6 @@ impl Game<'_> {
             }
         }
         if let WindowEvent::Focused(false) = &event {
-            self.risiya_motion.clear();
-            #[cfg(target_os = "android")]
-            {
-                self.risiya_inspect_finger = None;
-            }
             #[cfg(target_os = "android")]
             {
                 crate::device_runtime::suspend();
@@ -18312,9 +18200,6 @@ impl<'a> Game<'a> {
             swing: Default::default(),
             swings_started: 0,
             heights: Default::default(),
-            risiya_motion: Default::default(),
-            #[cfg(target_os = "android")]
-            risiya_inspect_finger: None,
             sway: Default::default(),
             visible_hands: [(0, None), (0, None)],
             hands_replaced: [false; 2],

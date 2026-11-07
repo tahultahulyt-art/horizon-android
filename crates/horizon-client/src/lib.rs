@@ -112,7 +112,6 @@ pub mod recipe_book;
 pub mod recipe_book_screen;
 pub mod reconnect;
 pub mod resource_install;
-pub mod risiya_animation;
 pub mod save;
 pub mod scoreboard_cmd;
 pub mod screen_layout;

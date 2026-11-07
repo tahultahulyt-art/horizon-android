@@ -139,8 +139,6 @@ pub struct Settings {
     pub sensitivity: f32,
     /// Smooth real finger input, never target-aware.
     pub aim_stabilizer: bool,
-    /// Risiya-only first-person motion: off/lite/full/reduced.
-    pub risiya_animations: u8,
     pub aim_assist: bool,
     pub aim_assist_strength: f32,
     pub sensitivity_horizontal: f32,
@@ -235,7 +233,6 @@ impl Default for Settings {
             swap_jump_sneak: false,
             sensitivity: 1.0,
             aim_stabilizer: false,
-            risiya_animations: 0,
             aim_assist: false,
             aim_assist_strength: 0.15,
             sensitivity_horizontal: 1.0,
@@ -331,7 +328,6 @@ impl Settings {
         } else {
             1.0
         };
-        self.risiya_animations = self.risiya_animations.min(3);
         self.aim_assist_strength = if self.aim_assist_strength.is_finite() {
             self.aim_assist_strength.clamp(0.0, 0.3)
         } else {
@@ -455,23 +451,6 @@ pub fn contains([x, y, w, h]: [f32; 4], p: [f32; 2]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn risiya_motion_defaults_off_and_roundtrips_without_changing_controls() {
-        let mut settings: super::Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(settings.risiya_animations, 0);
-        let layout = serde_json::to_value(&settings.layouts).unwrap();
-        for mode in 0..4 {
-            settings.risiya_animations = mode;
-            let restored: super::Settings =
-                serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(restored.risiya_animations, mode);
-            assert_eq!(serde_json::to_value(&restored.layouts).unwrap(), layout);
-            assert_eq!(restored.aim_stabilizer, settings.aim_stabilizer);
-        }
-        settings.risiya_animations = 255;
-        settings.sanitize();
-        assert_eq!(settings.risiya_animations, 3);
-    }
     #[test]
     fn stabilizer_defaults_off_for_existing_profiles_and_roundtrips() {
         let mut settings: super::Settings = serde_json::from_str("{}").unwrap();

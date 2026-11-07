@@ -8,33 +8,6 @@ use horizon_client::{
 use winit::event::{Touch, TouchPhase};
 
 impl Game<'_> {
-    /// Shared draw/hit rectangle. Never cover an existing factory or custom control.
-    pub(super) fn risiya_inspect_button(&self, width: f32, height: f32) -> Option<[f32; 4]> {
-        if !horizon_client::risiya_animation::available()
-            || self.pad.touch.settings.risiya_animations == 0
-            || self.screen != Screen::Playing
-            || self.dialog_open()
-            || self.ui.hide_gui
-            || !self.camera_type.first_person()
-            || self.pad.touch.editor.is_some()
-        {
-            return None;
-        }
-        let [x, _, w, h] = horizon_client::risiya_animation::inspect_rect(width);
-        [32.0, 58.0, 84.0]
-            .into_iter()
-            .map(|y| [x, y, w, h])
-            .find(|[x, y, w, h]| {
-                *y + *h < height - 35.0
-                    && !self.pad.touch.overlaps_controls([
-                        *x / width,
-                        *y / height,
-                        *w / width,
-                        *h / height,
-                    ])
-            })
-    }
-
     pub(crate) fn android_apply_display_scale(&mut self) {
         if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer)
             && let Err(error) = crate::display::apply(window, renderer)
@@ -309,33 +282,6 @@ impl Game<'_> {
         events: &dyn super::event_loop::EventLoopCtl,
         id: WindowId,
     ) -> Result<bool> {
-        if self.risiya_inspect_finger == Some(t.id) {
-            if matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-                self.risiya_inspect_finger = None;
-            }
-            return Ok(true);
-        }
-        if horizon_client::risiya_animation::available()
-            && self.pad.touch.settings.risiya_animations != 0
-            && self.screen == Screen::Playing
-            && !self.dialog_open()
-            && !self.ui.hide_gui
-            && self.camera_type.first_person()
-            && self.pad.touch.editor.is_none()
-            && t.phase == TouchPhase::Started
-        {
-            let size = self.window.as_ref().unwrap().inner_size();
-            let b = HudBatch::new([size.width, size.height]);
-            let p = [t.location.x as f32 / b.scale, t.location.y as f32 / b.scale];
-            if self
-                .risiya_inspect_button(b.width, b.height)
-                .is_some_and(|[x, y, w, h]| p[0] >= x && p[0] < x + w && p[1] >= y && p[1] < y + h)
-            {
-                self.risiya_motion.request();
-                self.risiya_inspect_finger = Some(t.id);
-                return Ok(true);
-            }
-        }
         if t.phase == TouchPhase::Ended
             && let Some((right, last)) = self.pad.touch_ui.release_mouse(t.id)
         {
