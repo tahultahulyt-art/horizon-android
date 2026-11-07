@@ -41,6 +41,8 @@ crosshair is already inside the body, there is no pull to the centre/head.
 The correction is capped by all of: selected fraction of angular error, 8 degrees
 per second and half the finger's turn this frame. Deliberate swipes over
 150 degrees/second or input away from the corrective direction disengage it.
+Each axis follows only existing finger movement on that same axis. Horizontal
+dragging cannot add vertical correction; moving away disengages that axis.
 This is a mild edge correction, not a full target lock. It cannot guarantee
 tracking, hits, PC-like feel or server acceptance.
 
@@ -56,3 +58,16 @@ release and yaw wrap. Shared settings tests cover default-off, roundtrip and lim
 Synthetic response images are math checks, not phone gameplay. Full Android
 compile, UI layout and real device feel remain separate checks. No GPU pass or
 Vulkan/GLES-specific feature is added.
+
+## Attack tap stability (dev20)
+
+The attack button still presses attack immediately. With Look while attacking
+on, camera drag now waits for 0.8% of surface height of finger travel (equal
+physical threshold on both axes). Small tap jitter is discarded. Crossing the
+threshold applies only the travel beyond it, never a catch-up jump; subsequent
+intentional dragging works normally. Release and clearing touch state reset it
+per finger. This changes neither attack timing nor separate look-finger input.
+
+This fixes a demonstrated code path for upward movement from an attack finger,
+not proof of the cause of a particular gameplay recording. Gyroscope and
+render-only hurt tilt/bobbing are independent settings.

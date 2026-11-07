@@ -7,6 +7,7 @@ use std::{
 };
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 pub mod assist;
+pub mod attack_drag;
 mod custom;
 mod editor;
 pub mod stabilizer;
@@ -136,6 +137,7 @@ pub struct TouchControls {
     pub inventory_shift: bool,
     pub editor: Option<editor::Editor>,
     fingers: BTreeMap<u64, (Role, [f32; 2])>,
+    attack_drags: BTreeMap<u64, attack_drag::AttackDrag>,
     custom_fingers: BTreeMap<u64, String>,
     custom_events: Vec<(String, bool)>,
     pending: PadState,
@@ -254,6 +256,7 @@ impl TouchControls {
         self.fingers.contains_key(&id) || self.custom_fingers.contains_key(&id)
     }
     pub fn ignore(&mut self, id: u64) {
+        self.attack_drags.remove(&id);
         self.fingers.insert(id, (Role::Ignore, [0.0; 2]));
     }
     pub fn tap(&mut self, button: Button) {
@@ -619,6 +622,7 @@ impl TouchControls {
             return [0.0; 2];
         }
         if ended {
+            self.attack_drags.remove(&id);
             if let Some((
                 Role::Look {
                     start,
@@ -721,6 +725,10 @@ impl TouchControls {
                 },
             };
             self.fingers.insert(id, (role, point));
+            if matches!(role, Role::Button(Button::RightTrigger)) {
+                self.attack_drags
+                    .insert(id, attack_drag::AttackDrag::new(point));
+            }
             if let Role::Button(button) = role {
                 match button {
                     Button::LeftTrigger => self.pending.triggers[0] = 1.0,
@@ -752,7 +760,9 @@ impl TouchControls {
                     [0.0; 2]
                 }
             } else if attack_look && matches!(role, Role::Button(Button::RightTrigger)) {
-                [point[0] - previous[0], point[1] - previous[1]]
+                self.attack_drags
+                    .get_mut(&id)
+                    .map_or([0.0; 2], |drag| drag.motion(point, *previous, aspect))
             } else {
                 [0.0; 2]
             };
@@ -773,6 +783,7 @@ impl TouchControls {
         self.inventory_shift = false;
         self.clear_custom();
         self.fingers.clear();
+        self.attack_drags.clear();
         self.last_sneak_tap = None;
         self.sprint_latched = false;
         self.pending = PadState::default();
@@ -1783,6 +1794,28 @@ mod tests {
         t.update(2, [0.7, 0.4], false, false);
         t.update(2, [0.7, 0.4], false, true);
         assert_eq!(t.poll_state().triggers, [0.0; 2]);
+    }
+
+    #[test]
+    fn attack_tap_jitter_does_not_turn_and_attack_press_is_immediate() {
+        let mut touch = TouchControls::default();
+        let start = touch.placement(Control::Attack).center;
+        touch.update(1, start, true, false);
+        assert_eq!(touch.poll_state().triggers[1], 1.0);
+        for point in [[start[0], start[1] - 0.003], [start[0], start[1] - 0.005]] {
+            assert_eq!(touch.update(1, point, false, false), [0.0; 2]);
+            assert_eq!(touch.poll_state().triggers[1], 1.0);
+        }
+        assert_eq!(touch.update(1, start, false, true), [0.0; 2]);
+        assert_eq!(touch.poll_state().triggers[1], 0.0);
+        assert!(touch.attack_drags.is_empty());
+        touch.update(2, start, true, false);
+        assert_ne!(
+            touch.update(2, [start[0], start[1] - 0.03], false, false),
+            [0.0; 2]
+        );
+        touch.clear();
+        assert!(touch.attack_drags.is_empty());
     }
 
     #[test]

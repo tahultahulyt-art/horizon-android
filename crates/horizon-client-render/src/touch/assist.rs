@@ -72,13 +72,18 @@ pub fn correction(
     if length < 0.0001 || length > 2.5 || motion < 0.0001 || motion / seconds > 150.0 {
         return [0.0; 2];
     }
-    if error[0] * finger[0] + error[1] * finger[1] < 0.0 {
-        return [0.0; 2];
-    }
-    let amount = (length * strength.clamp(0.0, 0.3))
-        .min(8.0 * seconds)
-        .min(motion * 0.5);
-    error.map(|v| v / length * amount)
+    let limit = 8.0 * seconds;
+    std::array::from_fn(|axis| {
+        // A horizontal drag must never manufacture vertical camera movement.
+        // Each axis is assisted only in the user's current direction on that axis.
+        if error[axis] * finger[axis] <= 0.0 {
+            return 0.0;
+        }
+        let amount = (error[axis].abs() * strength.clamp(0.0, 0.3))
+            .min(limit * (error[axis].abs() / length))
+            .min(finger[axis].abs() * 0.5);
+        error[axis].signum() * amount
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -161,6 +166,18 @@ mod tests {
             correction([1.0, 0.0], [10.0, 0.0], 0.016, 0.3, true),
             [0.0; 2]
         );
+    }
+    #[test]
+    fn horizontal_drag_never_adds_vertical_and_axes_release_independently() {
+        let c = correction([1.0, -1.0], [0.2, 0.0], 0.016, 0.3, true);
+        assert!(c[0] > 0.0);
+        assert_eq!(c[1], 0.0);
+        let c = correction([1.0, -1.0], [0.2, 0.1], 0.016, 0.3, true);
+        assert!(c[0] > 0.0);
+        assert_eq!(c[1], 0.0);
+        let c = correction([1.0, -1.0], [0.0, -0.1], 0.016, 0.3, true);
+        assert_eq!(c[0], 0.0);
+        assert!(c[1] < 0.0);
     }
     #[test]
     fn yaw_wrap_does_not_turn_the_long_way() {

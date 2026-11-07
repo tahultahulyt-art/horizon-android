@@ -12,3 +12,6 @@ with tempfile.TemporaryDirectory(prefix='aim-stabilizer-') as d:
 
     subprocess.run(['rustc','--edition','2024','--test',str(root/'tests/touch_assist_policy.rs'),'-o',str(target)],check=True)
     subprocess.run([str(target)],check=True)
+
+    subprocess.run(['rustc','--edition','2024','--test',str(root/'crates/horizon-client-render/src/touch/attack_drag.rs'),'-o',str(target)],check=True)
+    subprocess.run([str(target)],check=True)
