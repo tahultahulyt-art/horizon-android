@@ -1,0 +1,8 @@
+id = "kusobo_coordinates"
+name = "Kusobo Coordinates"
+version = "1.0.0"
+description = "Coordinates, facing and world time. /coords toggles the panel; /where prints your position."
+authors = ["Horizon contributors", "Kusobo"]
+api = "0.1"
+side = "client"
+capabilities = ["game-read", "hud", "chat"]

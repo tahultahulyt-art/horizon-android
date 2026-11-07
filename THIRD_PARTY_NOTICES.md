@@ -109,3 +109,7 @@ The package hashes were checked against the Horizon registry. Android adaptation
 use the existing opt-in bundled-mod switches, persist the original settings,
 respect left-handed armor layout and include touch/controller input in the
 Keystrokes display. Original authors have not tested or endorsed this APK.
+
+## Kusobo Coordinates sample
+
+The sandboxed coordinates sample and source template derive from Horizon's MIT-licensed coords-hud SDK example. Copyright (c) 2026 Ludovic Marie and the Horizon contributors. The original MIT license is included in each archive. Kusobo is a management layer, not a replacement or renaming of the Horizon SDK/API.

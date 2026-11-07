@@ -88,26 +88,42 @@ fn mouse_button_rects(w: f32, h: f32) -> [([f32; 4], bool); 2] {
 
 /// Shared outlined pointer for virtual mouse and controller menus.
 pub fn draw_pointer(batch: &mut HudBatch, atlas: &HudAtlas, cursor: (f32, f32)) {
+    draw_pointer_scaled(batch, atlas, cursor, 1.0);
+}
+
+pub fn draw_pointer_scaled(batch: &mut HudBatch, atlas: &HudAtlas, cursor: (f32, f32), scale: f32) {
+    let scale = if scale.is_finite() {
+        scale.clamp(0.5, 3.0)
+    } else {
+        1.0
+    };
     let (x, y) = (cursor.0.floor(), cursor.1.floor());
     const ROWS: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 4, 2, 1];
     for (i, &w) in ROWS.iter().enumerate() {
         batch.fill(
             atlas,
-            x - 1.0,
-            y + i as f32,
-            f32::from(w) + 2.0,
-            1.0,
+            x - scale,
+            y + i as f32 * scale,
+            (f32::from(w) + 2.0) * scale,
+            scale,
             rgba(0, 0, 0, 255),
         );
     }
-    batch.fill(atlas, x - 1.0, y + 10.0, 2.0, 1.0, rgba(0, 0, 0, 255));
+    batch.fill(
+        atlas,
+        x - scale,
+        y + 10.0 * scale,
+        2.0 * scale,
+        scale,
+        rgba(0, 0, 0, 255),
+    );
     for (i, &w) in ROWS.iter().enumerate().skip(1).take(8) {
         batch.fill(
             atlas,
             x,
-            y + i as f32,
-            f32::from(w) - 1.0,
-            1.0,
+            y + i as f32 * scale,
+            (f32::from(w) - 1.0) * scale,
+            scale,
             rgba(255, 255, 255, 255),
         );
     }

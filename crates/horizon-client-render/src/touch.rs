@@ -358,11 +358,11 @@ impl TouchControls {
             let p = self.placement(control);
             let size = p.size * h;
             let (x, y) = (p.center[0] * w - size / 2.0, p.center[1] * h - size / 2.0);
-            let opacity = if self.editor.is_some() {
-                p.opacity.max(0.25)
-            } else {
-                p.opacity
-            };
+            let opacity = self.settings.draw_opacity(
+                p.opacity,
+                self.editor.is_some(),
+                matches!(control, Control::Settings | Control::Pause),
+            );
             let color = rgba(255, 255, 255, (opacity * 255.0).round() as u8);
             let held = (self.inventory_mode
                 && Self::inventory_token(control)

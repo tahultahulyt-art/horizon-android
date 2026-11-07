@@ -202,6 +202,7 @@ impl Page {
 }
 enum Reply {
     Done(String, horizon_client::content_files::Kind),
+    Kusobo(String),
 }
 pub struct Catalog {
     pub local: Vec<LocalItem>,
@@ -320,6 +321,13 @@ impl Catalog {
         }
         self.local.sort_by_key(|e| e.title.to_lowercase());
     }
+    pub fn kusobo_resource(&mut self, home: &Path, template: bool) {
+        let game = self.config.game_home(home);
+        self.job("Preparing Kusobo resource...", move || {
+            let message = crate::kusobo::install(&game, template)?;
+            Ok(Reply::Kusobo(message))
+        });
+    }
     pub fn busy(&self) -> bool {
         self.worker.is_some()
     }
@@ -383,6 +391,7 @@ impl Catalog {
                 self.failed = downloading;
             }
             match reply {
+                Ok(Reply::Kusobo(s)) => self.status = s,
                 Ok(Reply::Done(s, kind)) => {
                     self.status = s;
                     self.show_installed(Some(kind));

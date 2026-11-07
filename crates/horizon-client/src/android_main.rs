@@ -46,6 +46,8 @@ mod documents;
 mod exit_reports;
 #[path = "android/gallery.rs"]
 mod gallery;
+#[path = "android/kusobo.rs"]
+mod kusobo;
 #[path = "android/native_ime.rs"]
 mod native_ime;
 #[path = "android/performance.rs"]

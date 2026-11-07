@@ -166,11 +166,9 @@ impl TouchControls {
                 size,
             ];
             let pressed = self.custom_fingers.values().any(|key| *key == button.key);
-            let opacity = if self.editor.is_some() {
-                p.opacity.max(0.25)
-            } else {
-                p.opacity
-            };
+            let opacity = self
+                .settings
+                .draw_opacity(p.opacity, self.editor.is_some(), false);
             if opacity <= 0.0 {
                 continue;
             }

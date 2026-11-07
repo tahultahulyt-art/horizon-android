@@ -1496,7 +1496,11 @@ impl Game<'_> {
             self.draw_pad_focus(batch, focus);
             return;
         }
-        horizon_client::touch_ui::draw_pointer(batch, &self.gui.atlas, (x, y));
+        #[cfg(target_os = "android")]
+        let scale = self.settings.touch.cursor_scale;
+        #[cfg(not(target_os = "android"))]
+        let scale = 1.0;
+        horizon_client::touch_ui::draw_pointer_scaled(batch, &self.gui.atlas, (x, y), scale);
     }
 
     /// The focus highlight, as vanilla's keyboard focus looks: buttons,

@@ -823,6 +823,8 @@ pub enum Opt {
     TouchOffhand,
     TouchShield,
     TouchButtonScale,
+    TouchControlOpacity,
+    TouchCursorScale,
     TouchInteract,
     TouchLeftHand,
     TouchSprintButton,

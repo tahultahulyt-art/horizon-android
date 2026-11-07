@@ -16370,7 +16370,9 @@ impl Game<'_> {
                 } else if self.pad.touch.settings_requested {
                     self.android_release_touch_keys(true);
                     self.audio.play_button_click();
-                    self.open_options(false);
+                    self.capture(false);
+                    self.open_options_at(false, horizon_client::options_ui::Page::QuickControls);
+                    self.options_to_game = true;
                 } else if std::mem::take(&mut self.pad.touch.debug_requested) {
                     self.audio.play_button_click();
                     if !self.pad.touch_ui.key_held(KeyCode::F3) {

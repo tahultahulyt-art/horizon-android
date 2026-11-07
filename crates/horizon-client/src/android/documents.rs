@@ -284,7 +284,11 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
         return Err(if request.dest.is_some() {
             "That filename is not allowed"
         } else {
-            "Selected file has the wrong extension for this folder"
+            if request.kind == Kind::Mods {
+                "Kusobo imports .hmod WebAssembly/content packages only. Fabric/Forge .jar and source-only .hnmod files are not supported."
+            } else {
+                "Selected file has the wrong extension for this folder"
+            }
         }
         .into());
     }

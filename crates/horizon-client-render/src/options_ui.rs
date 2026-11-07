@@ -206,6 +206,8 @@ impl Opt {
             Opt::TouchOffhand => "Swap hands button",
             Opt::TouchShield => "Raise shield with",
             Opt::TouchButtonScale => "Control button size",
+            Opt::TouchControlOpacity => "Control opacity",
+            Opt::TouchCursorScale => "Virtual cursor size",
             Opt::TouchInteract => "Interact button",
             Opt::TouchLeftHand => "Left handed",
             Opt::TouchSprintButton => "Sprint button",
@@ -364,6 +366,8 @@ impl Opt {
             Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 10.0),
             Opt::TouchMouseSensitivity => unit(s.touch.virtual_mouse_sensitivity, 0.25, 3.0),
             Opt::TouchButtonScale => unit(s.touch.button_scale, 0.5, 2.0),
+            Opt::TouchControlOpacity => unit(s.touch.control_opacity, 0.0, 1.0),
+            Opt::TouchCursorScale => unit(s.touch.cursor_scale, 0.5, 3.0),
             Opt::Fov => unit(s.fov, 30.0, 110.0),
             Opt::RenderDistance => unit(
                 s.render_distance as f32,
@@ -519,6 +523,8 @@ impl Opt {
                     .to_owned(),
             ),
             Opt::TouchCircleSize => Some(format!("{} px", s.touch.circle_size.round())),
+            Opt::TouchControlOpacity => Some(format!("{:.0}%", s.touch.control_opacity * 100.0)),
+            Opt::TouchCursorScale => Some(format!("{:.0}%", s.touch.cursor_scale * 100.0)),
             Opt::TouchAttackSide => Some(
                 if s.touch.attack_indicator_left {
                     "Left"
@@ -1002,6 +1008,8 @@ impl Opt {
             Opt::TouchSensitivityVertical => s.touch.sensitivity_vertical = 0.1 + v * 9.9,
             Opt::TouchMouseSensitivity => s.touch.virtual_mouse_sensitivity = 0.25 + v * 2.75,
             Opt::TouchButtonScale => s.touch.button_scale = 0.5 + v * 1.5,
+            Opt::TouchControlOpacity => s.touch.control_opacity = v,
+            Opt::TouchCursorScale => s.touch.cursor_scale = 0.5 + v * 2.5,
             Opt::FovEffects | Opt::DarknessPulsing => s.file.set(
                 self.file_key().unwrap(),
                 crate::options_file::V::Double(f64::from(v).powi(2)),
@@ -1480,6 +1488,8 @@ pub enum Page {
     /// Horizon's controller settings and button binds.
     Controller,
     Touch,
+    #[cfg(target_os = "android")]
+    QuickControls,
     PadBinds,
     Extras,
     /// CreditsAndAttributionScreen.
@@ -2433,6 +2443,8 @@ impl OptionsUi {
             Page::PadBinds => "horizon.pages.controller_binds",
             Page::Extras => "horizon.pages.extras",
             Page::Touch => "Touch Controls",
+            #[cfg(target_os = "android")]
+            Page::QuickControls => "Quick controls",
             Page::Credits => "credits_and_attribution.screen.title",
             Page::Horizon => "horizon.pages.settings",
             Page::Agent => "horizon.pages.agent",
@@ -2768,6 +2780,45 @@ impl OptionsUi {
                     },
                 ));
                 self.filter_option_rows(rows)
+            }
+            #[cfg(target_os = "android")]
+            Page::QuickControls => {
+                let mut rows = vec![Row::Buttons(
+                    button(
+                        0.0,
+                        0.0,
+                        310.0,
+                        Text::literal("Edit controls..."),
+                        Act::TouchControls,
+                    ),
+                    None,
+                )];
+                rows.extend(pairs(&[
+                    Opt::TouchControlOpacity,
+                    Opt::TouchSensitivity,
+                    Opt::TouchMouseSensitivity,
+                    Opt::TouchCursorScale,
+                    Opt::TouchButtonScale,
+                    Opt::TouchCircleSize,
+                ]));
+                rows.push(Row::Big(Opt::Sensitivity));
+                rows.push(Row::Buttons(
+                    button(
+                        0.0,
+                        0.0,
+                        150.0,
+                        Text::literal("More settings..."),
+                        Act::Push(Page::Main),
+                    ),
+                    button(
+                        0.0,
+                        0.0,
+                        150.0,
+                        Text::literal("Touch settings..."),
+                        Act::Push(Page::Touch),
+                    ),
+                ));
+                rows
             }
             Page::Touch => {
                 let mut rows = vec![Row::Big(Opt::TouchMode)];

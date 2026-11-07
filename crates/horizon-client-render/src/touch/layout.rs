@@ -143,6 +143,10 @@ pub struct Settings {
     pub shield_button: bool,
     pub circle_size: f32,
     pub button_scale: f32,
+    /// Multiplies per-button opacity without overwriting custom layouts.
+    pub control_opacity: f32,
+    /// Game-drawn virtual/controller menu arrow only, not the OS pointer.
+    pub cursor_scale: f32,
     pub custom_buttons: Vec<super::CustomButton>,
     pub analog_movement: bool,
     pub sprint_button: bool,
@@ -230,6 +234,8 @@ impl Default for Settings {
             shield_button: true,
             circle_size: 32.0,
             button_scale: 1.0,
+            control_opacity: 1.0,
+            cursor_scale: 1.0,
             custom_buttons: Vec::new(),
             analog_movement: false,
             sprint_button: true,
@@ -300,6 +306,16 @@ impl Settings {
             self.split_controls = false;
             self.crosshair_gestures = true;
         }
+        self.control_opacity = if self.control_opacity.is_finite() {
+            self.control_opacity.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        self.cursor_scale = if self.cursor_scale.is_finite() {
+            self.cursor_scale.clamp(0.5, 3.0)
+        } else {
+            1.0
+        };
         self.virtual_mouse_sensitivity = if self.virtual_mouse_sensitivity.is_finite() {
             self.virtual_mouse_sensitivity.clamp(0.25, 3.0)
         } else {
@@ -361,6 +377,14 @@ impl Settings {
         }
         for p in self.layouts.iter_mut().flatten() {
             p.sanitize();
+        }
+    }
+    pub fn draw_opacity(&self, opacity: f32, editing: bool, recovery: bool) -> f32 {
+        if editing {
+            opacity.max(0.25)
+        } else {
+            let value = opacity * self.control_opacity;
+            if recovery { value.max(0.25) } else { value }
         }
     }
     pub fn save(&self) -> std::io::Result<()> {
@@ -528,5 +552,37 @@ mod tests {
             [0.80, 0.96]
         );
         std::fs::remove_file(file).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod quick_controls_tests {
+    use super::*;
+    #[test]
+    fn defaults_and_sanitization_keep_old_profiles_compatible() {
+        let mut s: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!((s.control_opacity, s.cursor_scale), (1.0, 1.0));
+        s.control_opacity = f32::NAN;
+        s.cursor_scale = f32::INFINITY;
+        s.sanitize();
+        assert_eq!((s.control_opacity, s.cursor_scale), (1.0, 1.0));
+        s.control_opacity = -9.0;
+        s.cursor_scale = 9.0;
+        s.sanitize();
+        assert_eq!((s.control_opacity, s.cursor_scale), (0.0, 3.0));
+        assert_eq!(s.draw_opacity(0.65, false, false), 0.0);
+        assert_eq!(s.draw_opacity(0.0, false, true), 0.25);
+        assert_eq!(s.draw_opacity(0.0, true, false), 0.25);
+    }
+    #[test]
+    fn master_opacity_preserves_each_custom_placement() {
+        let mut s = Settings::default();
+        let before = serde_json::to_value(&s.layouts).unwrap();
+        s.control_opacity = 0.5;
+        assert_eq!(s.draw_opacity(0.6, false, false), 0.3);
+        assert_eq!(serde_json::to_value(&s.layouts).unwrap(), before);
+        let roundtrip: Settings =
+            serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(roundtrip.control_opacity, 0.5);
     }
 }

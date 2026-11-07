@@ -78,6 +78,8 @@ pub(super) enum Action {
     ChooseDisplayHz(u16),
     CacheBudget,
     ChooseCacheBudget(u32),
+    KusoboSample,
+    KusoboTemplate,
     ToggleBundled(&'static str),
     WorldFiles,
     GameFiles,
@@ -428,7 +430,11 @@ impl Launcher {
                 32.0,
                 140.0,
                 color::TEXT,
-                &format!("Local {}", page.name()),
+                &if page == Page::Mods {
+                    "Kusobo Loader v1".into()
+                } else {
+                    format!("Local {}", page.name())
+                },
             );
             ui.text(
                 Face::Regular,
@@ -436,7 +442,11 @@ impl Launcher {
                 32.0,
                 181.0,
                 color::MUTED,
-                "Add files from your phone. Online catalogs are removed.",
+                if page == Page::Mods {
+                    "Sandboxed .hmod / WebAssembly. Fabric/Forge .jar NOT supported."
+                } else {
+                    "Add files from your phone. Online catalogs are removed."
+                },
             );
             let bw = ((w - 80.0) / 3.0).max(70.0);
             for (i, (label, action)) in [
@@ -462,11 +472,39 @@ impl Launcher {
                 32.0,
                 282.0,
                 color::MUTED,
-                "Use Files to copy any safe filename. Import checks supported add-ons.",
+                if page == Page::Mods {
+                    "Imports start OFF. Enable in Installed; runtime errors: Options > Mods."
+                } else {
+                    "Use Files to copy any safe filename. Import checks supported add-ons."
+                },
             );
             if page == Page::Mods {
+                for (i, (label, action)) in [
+                    ("Install sample", Action::KusoboSample),
+                    ("Export template", Action::KusoboTemplate),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    button(
+                        &mut ui,
+                        &mut self.targets,
+                        [32.0 + i as f32 * (bw + 8.0), 315.0, bw, 42.0],
+                        label,
+                        action,
+                        false,
+                    );
+                }
+                ui.text(
+                    Face::Regular,
+                    13.0,
+                    32.0,
+                    369.0,
+                    color::MUTED,
+                    "Template exports to Config. Built-ins below are separate native ports.",
+                );
                 let bundled = horizon_client::mod_list::ANDROID_BUNDLED;
-                let top = 325.0;
+                let top = 409.0;
                 let bottom = h - 110.0;
                 let maximum = (bundled.len() as f32 * 78.0 - (bottom - top)).max(0.0);
                 self.catalog.scroll = self.catalog.scroll.clamp(0.0, maximum);
@@ -1174,6 +1212,8 @@ impl Launcher {
                 self.chooser = None;
                 self.catalog.status = "Disposable cache budget saved. Applies on next Play; not a total RAM or VRAM limit.".into();
             }
+            Some(Action::KusoboSample) => self.catalog.kusobo_resource(&self.home, false),
+            Some(Action::KusoboTemplate) => self.catalog.kusobo_resource(&self.home, true),
             Some(Action::ToggleBundled(id)) => {
                 let game = self.catalog.config.game_home(&self.home);
                 let mut list = horizon_client::mod_list::ModList::load(&game);
