@@ -189,7 +189,8 @@ const POST_HELPERS: &str = "\
 fn depth_at(uv: vec2<f32>) -> f32 {
     let size = vec2<f32>(textureDimensions(scene_depth));
     let texel = vec2<i32>(clamp(uv * size, vec2<f32>(0.0), size - 1.0));
-    return textureLoad(scene_depth, texel, 0);
+    // Point-sampled texel centre: same result, supported by GLES where depth texelFetch is not.
+    return textureSampleLevel(scene_depth, nearest_sampler, (vec2<f32>(texel) + 0.5) / size, 0);
 }
 // The camera-relative world position, in blocks, of the point at `uv` and `depth`.
 fn view_position(uv: vec2<f32>, depth: f32) -> vec3<f32> {

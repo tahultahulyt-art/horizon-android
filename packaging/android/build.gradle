@@ -4,6 +4,7 @@ android {
     namespace 'dev.horizon.android'
     compileSdk 35
     defaultConfig {
+        manifestPlaceholders = [appLabel: providers.gradleProperty('appLabel').getOrElse('Horizon Android')]
         applicationId providers.gradleProperty('appId').getOrElse('dev.horizon.android')
         minSdk providers.gradleProperty('minSdk').getOrElse('28').toInteger()
         targetSdk 35

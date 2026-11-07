@@ -1,0 +1,11 @@
+schema = 1
+id = "risiya_light"
+name = "Risiya Light"
+version = "1.0.0"
+api = "0.1"
+description = "A light optional colour grade. No shadows or bloom."
+authors = ["Horizon Android contributors"]
+license = "MIT"
+[[post]]
+file = "post.wgsl"
+name = "Gentle colour"

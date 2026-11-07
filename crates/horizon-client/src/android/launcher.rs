@@ -3,8 +3,12 @@ use crate::catalog::{Catalog, Page};
 use crate::game;
 #[path = "chooser.rs"]
 mod chooser;
+#[path = "default_appearance.rs"]
+mod default_appearance;
 #[path = "file_manager.rs"]
 mod files;
+#[path = "fresh_defaults.rs"]
+mod fresh_defaults;
 #[path = "launcher_gesture.rs"]
 mod gesture;
 #[path = "login.rs"]
@@ -13,6 +17,8 @@ mod login;
 mod offline_identity;
 #[path = "launcher_pages.rs"]
 mod pages;
+#[path = "risiya_content.rs"]
+mod risiya_content;
 #[path = "launcher_skin.rs"]
 mod skin;
 #[path = "wardrobe.rs"]
@@ -117,19 +123,22 @@ impl Launcher {
                 log::warn!("Could not clean completed Minecraft downloads: {error}");
             }
         });
-        let offline_migration = offline_identity::apply(&home, &crate::account::Accounts::path());
-        let mut catalog = Catalog::new(&home);
-        match offline_migration {
-            Ok(true) => {
-                catalog.status =
-                    "Offline player risiya selected. Saved online accounts and worlds were kept."
-                        .into()
+        let risiya = option_env!("HORIZON_ANDROID_VARIANT") == Some("risiya");
+        if risiya {
+            if let Err(error) = fresh_defaults::seed(&home) {
+                log::warn!("Could not seed requested launch defaults: {error}");
             }
-            Err(error) => {
-                catalog.status = format!("Could not select offline player risiya: {error}")
+            if let Err(error) = default_appearance::seed(&home.join("wardrobe")) {
+                log::warn!("Could not seed requested appearance: {error}");
             }
-            Ok(false) => {}
+            if let Err(error) = offline_identity::apply(&home, &crate::account::Accounts::path()) {
+                log::warn!("Could not select offline risiya: {error}");
+            }
+            if let Err(error) = risiya_content::seed(&home) {
+                log::warn!("Could not seed requested server/shader: {error}");
+            }
         }
+        let mut catalog = Catalog::new(&home);
         if crate::diagnostics::previous_unclean(&home) {
             catalog.status = crate::diagnostics::summary(&home);
         }
@@ -503,6 +512,12 @@ impl ApplicationHandler for Launcher {
         if let Err(error) = self.open(events) {
             self.fail(error);
             events.exit();
+        } else if option_env!("HORIZON_ANDROID_VARIANT") == Some("risiya")
+            && !horizon_client::official_install::ready(&self.home)
+            && self.worker.is_none()
+            && let Err(error) = self.action(events)
+        {
+            self.fail(error);
         }
     }
     fn suspended(&mut self, events: &ActiveEventLoop) {

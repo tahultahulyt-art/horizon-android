@@ -26,6 +26,7 @@ serde_json = "1"
 #[path = "../../../../crates/horizon-client/src/android/game_launch.rs"] mod game_launch;
 #[path = "../../../../crates/horizon-client/src/android/device_preferences.rs"] mod device_preferences;
 #[path = "../../../../crates/horizon-client/src/android/offline_identity.rs"] mod offline_identity;
+#[path = "../../../../crates/horizon-client/src/android/fresh_defaults.rs"] mod fresh_defaults;
 """, encoding='utf-8')
     command = ['cargo', 'test', '--manifest-path', str(harness / 'Cargo.toml')]
     if args.offline:

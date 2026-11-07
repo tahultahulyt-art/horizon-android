@@ -56,6 +56,7 @@ mod java_launch {
 '''
     for name in ('account', 'skins'):
         source += f'#[path = "{(ROOT / "launcher/src" / (name + ".rs")).as_posix()}"] pub mod {name};\n'
+    source += '#[path = "' + (ROOT / 'crates/horizon-client/src/android/default_appearance.rs').as_posix() + '"] mod default_appearance;\n'
     source += "mod hud { pub fn decode_bytes(bytes:&[u8])->Result<(u32,u32,Vec<u8>),String> { let image=image::load_from_memory(bytes).map_err(|e|e.to_string())?.to_rgba8(); Ok((image.width(),image.height(),image.into_raw())) } }\n"
     source += 'mod engine { pub use horizon_core::player_texture::{process_cape,process_legacy_skin}; #[path="' + (ROOT / 'crates/horizon-client-render/src/skins/appearance.rs').as_posix() + '"] pub mod appearance; }\n'
     (harness / 'src/lib.rs').write_text(source, encoding='utf-8')
