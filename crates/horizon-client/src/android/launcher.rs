@@ -9,6 +9,8 @@ mod default_appearance;
 mod files;
 #[path = "fresh_defaults.rs"]
 mod fresh_defaults;
+#[path = "fresh_game_settings.rs"]
+mod fresh_game_settings;
 #[path = "launcher_gesture.rs"]
 mod gesture;
 #[path = "login.rs"]
@@ -125,6 +127,12 @@ impl Launcher {
         });
         let risiya = option_env!("HORIZON_ANDROID_VARIANT") == Some("risiya");
         if risiya {
+            if let Err(error) = fresh_game_settings::seed(&home) {
+                log::warn!("Could not seed requested game settings: {error}");
+            }
+            if let Err(error) = risiya_content::remove_light(&home) {
+                log::warn!("Could not withdraw Risiya Light: {error}");
+            }
             if let Err(error) = fresh_defaults::seed(&home) {
                 log::warn!("Could not seed requested launch defaults: {error}");
             }
