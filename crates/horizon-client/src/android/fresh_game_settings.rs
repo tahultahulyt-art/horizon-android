@@ -1,7 +1,7 @@
 //! Screenshot-requested in-game defaults. Risiya startup calls this only for new game homes.
 use std::path::Path;
 pub const OPTIONS: &str = "version:5023\npreferredGraphicsBackend:\"opengl\"\ngraphicsPreset:\"custom\"\ngamma:1.0\nrenderDistance:12\nsimulationDistance:12\nbiomeBlendRadius:2\nao:true\nrenderClouds:\"fast\"\nparticles:0\nmipmapLevels:4\nentityShadows:true\nentityDistanceScaling:1.0\nmenuBackgroundBlurriness:5\ncloudRange:128\ncutoutLeaves:true\nimprovedTransparency:false\ntextureFiltering:0\nmaxAnisotropyBit:2\nweatherRadius:10\nshowAutosaveIndicator:true\nvignette:true\nattackIndicator:1\nchunkSectionFadeInTime:0.75\nmaxFps:260\nenableVsync:false\ninactivityFpsLimit:\"afk\"\nguiScale:0\nfullscreen:false\nexclusiveFullscreen:false\nsoundCategory_master:1.0\nsoundCategory_music:0.0\nsoundCategory_record:1.0\nsoundCategory_weather:1.0\nsoundCategory_block:1.0\nsoundCategory_hostile:1.0\nsoundCategory_neutral:1.0\nsoundCategory_player:1.0\nsoundCategory_ambient:1.0\nsoundCategory_voice:1.0\nsoundCategory_ui:1.0\nshowSubtitles:false\ndirectionalAudio:false\n";
-pub const GRAPHICS: &str = "preset:custom\ngraphicsApi:opengl\npickedShaderPack:\n";
+pub const GRAPHICS: &str = "preset:custom\ngraphicsApi:opengl\nmotionBlur:true\npickedShaderPack:\n";
 pub fn seed(home: &Path) -> Result<bool, String> {
     // Either file means the game home was already used. Malformed files count as existing.
     for name in ["options.txt", "horizon-graphics.txt"] {
@@ -46,6 +46,7 @@ mod tests {
             std::fs::read_to_string(p.join("horizon-graphics.txt")).unwrap(),
             GRAPHICS
         );
+        assert!(GRAPHICS.lines().any(|s| s == "motionBlur:true"));
         std::fs::write(p.join("options.txt"), b"user edit").unwrap();
         assert!(!seed(&p).unwrap());
         assert_eq!(std::fs::read(p.join("options.txt")).unwrap(), b"user edit");
