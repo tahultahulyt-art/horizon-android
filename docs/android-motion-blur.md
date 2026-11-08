@@ -5,11 +5,15 @@ The same option appears in Advanced > Display. It saves per game profile in
 horizon-graphics.txt as motionBlur:true/false.
 
 This is camera-turn blur, not frame generation, FPS improvement or full
-per-object motion blur. A short, five-tap blur of the current world image follows
-camera rotation. The hand and HUD are drawn after the pass and remain sharp.
+per-object motion blur. A short, eight-tap tent-weighted blur of the current
+world image follows camera rotation; a fixed per-pixel noise shifts each
+pixel's taps so the streak reads as one smooth gradient, without banding or
+separate ghost images. The hand and HUD are drawn after the pass and remain
+sharp.
 It uses no depth texture reads or previous-image blending, for the OpenGL ES
 path and to avoid accumulated trails. It resets on title screens, shader packs,
-long frame gaps and large camera cuts. With a stationary camera it stays sharp.
+long frame gaps (over 0.2s) and large camera cuts. With a stationary camera it
+stays sharp.
 
 Shader packs with their own post-processing suspend this built-in effect.
 Turn the shader pack off to use it. TAA/FXAA and resolution scale are retained.

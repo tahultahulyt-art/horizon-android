@@ -141,6 +141,14 @@ struct MotionBlur {
     params: vec4<f32>,
 };
 @group(0) @binding(5) var<uniform> motion_blur: MotionBlur;
+
+// Interleaved gradient noise: a fixed per-pixel shift for the tap pattern, so
+// neighbouring pixels sample slightly different points along the streak and
+// the discrete taps read as one smooth gradient instead of a row of ghosts.
+fn blur_noise(pixel: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715))));
+}
+
 @fragment fn fs_motion_blur(in: PostOut) -> @location(0) vec4<f32> {
     let centre = textureSampleLevel(world, world_sampler, in.uv, 0.0);
     var base = centre.rgb;
@@ -153,13 +161,20 @@ struct MotionBlur {
     let speed = length(pixels);
     // A large cut/FOV jump is a reset, not a streak across the display.
     if speed < 0.5 || speed > 200.0 { return vec4(base, centre.a); }
-    let delta = (in.uv - prior_uv) * motion_blur.params.x * min(1.0, 20.0 / max(speed, 0.001));
-    var rgb = base * 0.4;
+    let delta = (in.uv - prior_uv) * motion_blur.params.x * min(1.0, 30.0 / max(speed, 0.001));
+    // Eight taps along the streak, tent-weighted: the middle keeps detail while
+    // the ends fade out, and the per-pixel noise shift hides the banding that a
+    // short uniform tap row shows as separate ghost images.
     let texel = 0.5 / vec2<f32>(textureDimensions(world));
-    for (var i = 0; i < 4; i++) {
-        let offset = (f32(i) / 3.0 - 0.5) * delta;
-        let uv = clamp(in.uv + offset, texel, vec2(1.0) - texel);
-        rgb += textureSampleLevel(world, world_sampler, uv, 0.0).rgb * 0.15;
+    let jitter = blur_noise(in.clip.xy) - 0.5;
+    var rgb = vec3<f32>(0.0);
+    var weight = 0.0;
+    for (var i = 0; i < 8; i++) {
+        let t = (f32(i) + 0.5) / 8.0 - 0.5;
+        let uv = clamp(in.uv + (t + jitter / 8.0) * delta, texel, vec2(1.0) - texel);
+        let w = 1.0 - abs(2.0 * t);
+        rgb += textureSampleLevel(world, world_sampler, uv, 0.0).rgb * w;
+        weight += w;
     }
-    return vec4(rgb, centre.a);
+    return vec4(rgb / weight, centre.a);
 }

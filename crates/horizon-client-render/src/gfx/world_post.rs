@@ -286,16 +286,18 @@ impl Post {
             return;
         }
         let now = std::time::Instant::now();
+        // 0.2s: a hitch in one frame no longer drops the streak (the shader's
+        // 200px cut reset still catches teleports and scene changes).
         let previous = self
             .blur_previous
-            .filter(|(_, time)| now.duration_since(*time).as_secs_f32() <= 0.1);
+            .filter(|(_, time)| now.duration_since(*time).as_secs_f32() <= 0.2);
         let reproject = if self.blur_on {
             previous.map_or(Mat4::IDENTITY, |(old, _)| old * view.inverse())
         } else {
             Mat4::IDENTITY
         };
         self.blur_previous = self.blur_on.then_some((view, now));
-        // 50% shutter, at most 20 screen pixels. Keep FXAA's centre sample.
+        // 50% shutter, at most 30 screen pixels.
         let mut data = [0.0f32; 20];
         data[..16].copy_from_slice(&reproject.to_cols_array());
         data[16] = if previous.is_some() && self.blur_on {
