@@ -485,10 +485,10 @@ impl Launcher {
             );
             if page == Page::Mods {
                 for (i, (label, action)) in [
-                    ("Lua sample", Action::KusoboScriptSample),
-                    ("Lua template", Action::KusoboScriptTemplate),
-                    ("Wasm sample", Action::KusoboSample),
-                    ("Wasm template", Action::KusoboTemplate),
+                    ("Install sample Lua", Action::KusoboScriptSample),
+                    ("Export template Lua", Action::KusoboScriptTemplate),
+                    ("Install sample Wasm", Action::KusoboSample),
+                    ("Export template Wasm", Action::KusoboTemplate),
                 ]
                 .into_iter()
                 .enumerate()
