@@ -3,13 +3,31 @@ use std::{io::Write, path::Path};
 const SAMPLE: &[u8] =
     include_bytes!("../../../../packaging/android/kusobo/kusobo_coordinates.hmod");
 const TEMPLATE: &[u8] = include_bytes!("../../../../packaging/android/kusobo/kusobo-template.zip");
+const SCRIPT_SAMPLE: &[u8] =
+    include_bytes!("../../../../packaging/android/kusobo/script/kusobo_cps.ksmod");
+const SCRIPT_TEMPLATE: &[u8] =
+    include_bytes!("../../../../packaging/android/kusobo/script/kusobo-script-template.zip");
+
+/// A resource the Kusobo Loader page installs or exports.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Resource {
+    /// The WebAssembly coordinates sample mod (installed OFF).
+    Sample,
+    /// The Rust/WebAssembly source template (needs a computer).
+    Template,
+    /// The Lua CPS counter sample mod (installed OFF).
+    ScriptSample,
+    /// The Lua script template + phone guide (edited on the phone).
+    ScriptTemplate,
+}
 
 /// Called only by the launcher's worker. Never replaces user files or enables code.
-pub fn install(game: &Path, template: bool) -> Result<String, String> {
-    let (folder, name, bytes) = if template {
-        ("", "kusobo-template.zip", TEMPLATE)
-    } else {
-        ("horizon-mods", "kusobo_coordinates.hmod", SAMPLE)
+pub fn install(game: &Path, resource: Resource) -> Result<String, String> {
+    let (folder, name, bytes) = match resource {
+        Resource::Sample => ("horizon-mods", "kusobo_coordinates.hmod", SAMPLE),
+        Resource::Template => ("", "kusobo-template.zip", TEMPLATE),
+        Resource::ScriptSample => ("horizon-mods", "kusobo_cps.ksmod", SCRIPT_SAMPLE),
+        Resource::ScriptTemplate => ("", "kusobo-script-template.zip", SCRIPT_TEMPLATE),
     };
     std::fs::create_dir_all(game).map_err(|e| e.to_string())?;
     let dir = game.join(folder);
@@ -36,9 +54,10 @@ pub fn install(game: &Path, template: bool) -> Result<String, String> {
         let _ = std::fs::remove_file(&path);
         return Err(e.to_string());
     }
-    Ok(if template {
-        "Template exported to Configuration/kusobo-template.zip. Copy it with Files; a Rust development computer is needed to build it."
-    } else {
-        "Kusobo Coordinates installed OFF. Enable in Installed, then Play. /coords toggles HUD, /where prints position."
+    Ok(match resource {
+        Resource::Sample => "Kusobo Coordinates installed OFF. Enable in Installed, then Play. /coords toggles HUD, /where prints position.",
+        Resource::Template => "Template exported to Configuration/kusobo-template.zip. Copy it with Files; a Rust development computer is needed to build it.",
+        Resource::ScriptSample => "Kusobo CPS Counter installed OFF. Enable in Installed, then Play. /cps moves the counter.",
+        Resource::ScriptTemplate => "Script template exported to Configuration/kusobo-script-template.zip. Open GUIDE.txt inside it; edit on your phone, no computer needed.",
     }.into())
 }

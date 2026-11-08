@@ -10,6 +10,12 @@ use std::{
 pub const MANIFEST: &str = "horizon-mod.toml";
 /// The component's file name in a `.hmod` or a mod folder.
 pub const WASM: &str = "mod.wasm";
+/// The Lua script's file name in a script mod (docs/script-mods.md): a
+/// `.hmod`/`.ksmod` holding `main.lua` instead of `mod.wasm`.
+pub const SCRIPT: &str = "main.lua";
+/// The file extensions [`find`] treats as mods: `.hmod` (WebAssembly or
+/// Lua) and `.ksmod` (Lua, so the two are easy to tell apart).
+pub const EXTENSIONS: [&str; 2] = ["hmod", "ksmod"];
 /// The API (WIT package `horizon:mods`) versions this build runs: a mod
 /// built for any 0.1.x SDK.
 pub const API: &str = "0.1";
@@ -314,24 +320,37 @@ impl Manifest {
     }
 }
 
-/// A mod as found on disk: its manifest and component bytes.
+/// The biggest `main.lua` a script mod may ship.
+const MAX_SCRIPT: u64 = 1 << 20;
+
+/// A mod as found on disk: its manifest and code (a WebAssembly component
+/// or a Lua script, never both).
 pub struct Package {
     pub manifest: Manifest,
     /// None for a content-only mod (capability `registries`, no code).
     pub wasm: Option<Vec<u8>>,
+    /// A Lua script mod's `main.lua` (docs/script-mods.md).
+    pub script: Option<String>,
 }
 impl Package {
-    /// A `.hmod` (a zip holding `horizon-mod.toml`, `mod.wasm` and, for
-    /// content, `assets/` and `data/`) or a folder holding the same.
+    /// A `.hmod`/`.ksmod` (a zip holding `horizon-mod.toml`, `mod.wasm` or
+    /// `main.lua` and, for content, `assets/` and `data/`) or a folder
+    /// holding the same.
     pub fn read(path: &Path) -> Result<Self, String> {
-        let (toml, wasm) = if path.is_dir() {
+        let (toml, wasm, script) = if path.is_dir() {
             let toml = std::fs::read_to_string(path.join(MANIFEST));
-            let wasm = path.join(WASM);
-            let wasm = match wasm.exists() {
-                true => Some(std::fs::read(wasm).map_err(|e| format!("{WASM}: {e}"))?),
-                false => None,
+            let read = |name: &str| -> Result<Option<Vec<u8>>, String> {
+                let file = path.join(name);
+                match file.exists() {
+                    true => Ok(Some(std::fs::read(file).map_err(|e| format!("{name}: {e}"))?)),
+                    false => Ok(None),
+                }
             };
-            (toml.map_err(|e| format!("{MANIFEST}: {e}"))?, wasm)
+            (
+                toml.map_err(|e| format!("{MANIFEST}: {e}"))?,
+                read(WASM)?,
+                read(SCRIPT)?,
+            )
         } else {
             let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -349,18 +368,34 @@ impl Package {
             };
             let toml = entry(MANIFEST)?.ok_or_else(|| format!("{MANIFEST}: missing"))?;
             let toml = String::from_utf8(toml).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
-            (toml, entry(WASM)?)
+            (toml, entry(WASM)?, entry(SCRIPT)?)
         };
         if wasm.as_ref().is_some_and(|w| w.len() as u64 > MAX_WASM) {
             return Err(format!("{WASM} is over {} MiB", MAX_WASM >> 20));
         }
+        let script = script
+            .map(|s| String::from_utf8(s).map_err(|_| format!("{SCRIPT}: not UTF-8")))
+            .transpose()?;
+        if script.as_ref().is_some_and(|s| s.len() as u64 > MAX_SCRIPT) {
+            return Err(format!("{SCRIPT} is over {} MiB", MAX_SCRIPT >> 20));
+        }
+        if wasm.is_some() && script.is_some() {
+            return Err(format!("both {WASM} and {SCRIPT}: a mod ships one code file"));
+        }
         let manifest = Manifest::parse(&toml)?;
-        if wasm.is_none() && !manifest.capabilities.contains(&Capability::Registries) {
+        if wasm.is_none()
+            && script.is_none()
+            && !manifest.capabilities.contains(&Capability::Registries)
+        {
             return Err(format!(
-                "{WASM}: missing (only a content mod, with capability registries, may have no code)"
+                "{WASM}: missing (a code mod ships {WASM} or {SCRIPT}; only a content mod, with capability registries, may have no code)"
             ));
         }
-        Ok(Package { manifest, wasm })
+        Ok(Package {
+            manifest,
+            wasm,
+            script,
+        })
     }
     /// The `.hmod` bytes for `manifest_text` and a component.
     pub fn write(manifest_text: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
@@ -402,10 +437,29 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = read
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "hmod") || p.join(MANIFEST).is_file())
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|e| EXTENSIONS.iter().any(|x| e == *x))
+                || p.join(MANIFEST).is_file()
+        })
         .collect();
     found.sort();
     found
+}
+
+/// The `.hmod` a script mod ships: `manifest_text` and its `main.lua`.
+pub fn write_script(manifest_text: &str, script: &str) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    Manifest::parse(manifest_text)?;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    let err = |e: zip::result::ZipError| e.to_string();
+    zip.start_file(MANIFEST, options).map_err(err)?;
+    zip.write_all(manifest_text.as_bytes())
+        .map_err(|e| e.to_string())?;
+    zip.start_file(SCRIPT, options).map_err(err)?;
+    zip.write_all(script.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(zip.finish().map_err(err)?.into_inner())
 }
 
 /// Turns a `wasm32-unknown-unknown` cdylib built with the SDK into the

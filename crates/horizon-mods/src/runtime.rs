@@ -58,7 +58,6 @@ pub use server_bindings::{
     horizon::mods::players::{GameMode, Player as ServerPlayer},
     horizon::mods::world::BlockChange,
 };
-type ClientEvents = bindings::exports::horizon::mods::events::Guest;
 type ServerEvents = server_bindings::exports::horizon::mods::server_events::Guest;
 /// The widget model a `ui` screen or settings page shows (WIT `interface
 /// ui`), for the game to draw with its menus' own widgets.
@@ -302,13 +301,17 @@ impl Entry {
     /// bind there): its row in Options > Mods gains a button.
     pub fn has_ui_settings(&self) -> bool {
         self.run.as_ref().is_some_and(|r| {
-            let d = r.store.data();
+            let d = r.data();
             !d.ui.settings.is_empty() || !d.input.keys.is_empty()
         })
     }
 }
 
-struct Running {
+#[cfg(feature = "scripts")]
+mod script;
+
+/// A running WebAssembly mod.
+struct WasmRun {
     store: Store<State>,
     /// The mod's `ui-events` export; none for a mod built before `ui`, or a
     /// server mod.
@@ -318,6 +321,183 @@ struct Running {
     raycasts: bool,
     /// It imports capability `recipes`.
     reads_recipes: bool,
+}
+
+/// A running mod: a WebAssembly component, or a Lua script (feature
+/// `scripts`, docs/script-mods.md).
+enum Running {
+    Wasm(WasmRun),
+    #[cfg(feature = "scripts")]
+    Lua(script::LuaRun),
+}
+
+/// A mod's [`State`] where it lives: in the store of a WebAssembly mod, in
+/// the Lua state's app data of a script mod.
+enum DataRef<'a> {
+    Wasm(&'a State),
+    #[cfg(feature = "scripts")]
+    Lua(mlua::AppDataRef<'a, State>),
+}
+impl std::ops::Deref for DataRef<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        match self {
+            DataRef::Wasm(s) => s,
+            #[cfg(feature = "scripts")]
+            DataRef::Lua(r) => r,
+        }
+    }
+}
+enum DataRefMut<'a> {
+    Wasm(&'a mut State),
+    #[cfg(feature = "scripts")]
+    Lua(mlua::AppDataRefMut<'a, State>),
+}
+impl std::ops::Deref for DataRefMut<'_> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        match self {
+            DataRefMut::Wasm(s) => s,
+            #[cfg(feature = "scripts")]
+            DataRefMut::Lua(r) => r,
+        }
+    }
+}
+impl std::ops::DerefMut for DataRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut State {
+        match self {
+            DataRefMut::Wasm(s) => s,
+            #[cfg(feature = "scripts")]
+            DataRefMut::Lua(r) => r,
+        }
+    }
+}
+
+impl Running {
+    fn data(&self) -> DataRef<'_> {
+        match self {
+            Running::Wasm(w) => DataRef::Wasm(w.store.data()),
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => DataRef::Lua(l.lua.app_data_ref().expect("mod state is present")),
+        }
+    }
+    fn data_mut(&mut self) -> DataRefMut<'_> {
+        match self {
+            Running::Wasm(w) => DataRefMut::Wasm(w.store.data_mut()),
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => DataRefMut::Lua(
+                l.lua.try_app_data_mut().ok().flatten().expect("mod state is present"),
+            ),
+        }
+    }
+    /// The WebAssembly mod, when this is one (script mods skip the
+    /// WebAssembly-only surfaces: `ui`, `input`, `render`, `browser`).
+    fn wasm(&self) -> Option<&WasmRun> {
+        match self {
+            Running::Wasm(w) => Some(w),
+            #[cfg(feature = "scripts")]
+            Running::Lua(_) => None,
+        }
+    }
+    fn wasm_mut(&mut self) -> Option<&mut WasmRun> {
+        match self {
+            Running::Wasm(w) => Some(w),
+            #[cfg(feature = "scripts")]
+            Running::Lua(_) => None,
+        }
+    }
+    /// Runs where the world is simulated.
+    fn is_server(&self) -> bool {
+        match self {
+            Running::Wasm(w) => w.hooks.server().is_some(),
+            #[cfg(feature = "scripts")]
+            Running::Lua(_) => false,
+        }
+    }
+    /// The commands this mod owns.
+    fn commands(&self) -> Vec<&str> {
+        match self {
+            Running::Wasm(w) => w.hooks.commands(),
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => l.registration.commands.iter().map(String::as_str).collect(),
+        }
+    }
+    /// A client mod's hook registration.
+    fn client_reg(&self) -> Option<&Registration> {
+        match self {
+            Running::Wasm(w) => w.hooks.client(),
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => Some(&l.registration),
+        }
+    }
+    /// The call's budget: fuel for WebAssembly, instructions for a script.
+    fn set_limit(&mut self, fuel: u64) -> Result<(), String> {
+        match self {
+            Running::Wasm(w) => w.store.set_fuel(fuel).map_err(|e| e.to_string()),
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => {
+                l.set_budget(fuel);
+                Ok(())
+            }
+        }
+    }
+    fn call_tick(&mut self, tick: u64) -> Result<(), String> {
+        match self {
+            Running::Wasm(w) => match &w.hooks {
+                Hooks::Client(m, _) => m
+                    .horizon_mods_events()
+                    .call_tick(&mut w.store, tick)
+                    .map_err(|e| reason(&e)),
+                Hooks::Server(..) => Ok(()),
+            },
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => l.call_tick(tick),
+        }
+    }
+    fn call_frame(&mut self, seconds: f32) -> Result<(), String> {
+        match self {
+            Running::Wasm(w) => match &w.hooks {
+                Hooks::Client(m, _) => m
+                    .horizon_mods_events()
+                    .call_frame(&mut w.store, seconds)
+                    .map_err(|e| reason(&e)),
+                Hooks::Server(..) => Ok(()),
+            },
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => l.call_frame(seconds),
+        }
+    }
+    fn call_chat(&mut self, text: &str) -> Result<(), String> {
+        match self {
+            Running::Wasm(w) => match &w.hooks {
+                Hooks::Client(m, _) => m
+                    .horizon_mods_events()
+                    .call_chat(&mut w.store, text)
+                    .map_err(|e| reason(&e)),
+                Hooks::Server(..) => Ok(()),
+            },
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => l.call_chat(text),
+        }
+    }
+    /// Ok(Ok(text)) is feedback, Ok(Err(text)) red feedback, Err stops the mod.
+    fn call_command(
+        &mut self,
+        name: &str,
+        args: &str,
+    ) -> Result<Result<Option<String>, String>, String> {
+        match self {
+            Running::Wasm(w) => match &w.hooks {
+                Hooks::Client(m, _) => m
+                    .horizon_mods_events()
+                    .call_command(&mut w.store, name, args)
+                    .map_err(|e| reason(&e)),
+                Hooks::Server(..) => Ok(Ok(None)),
+            },
+            #[cfg(feature = "scripts")]
+            Running::Lua(l) => Ok(l.call_command(name, args)),
+        }
+    }
 }
 
 /// A running mod's exports and the hooks its `init` asked for.
@@ -564,6 +744,9 @@ impl Mods {
         reserved: &dyn Fn(&str) -> bool,
     ) -> Result<Option<Running>, String> {
         let m = &package.manifest;
+        if let Some(script) = &package.script {
+            return self.start_script(path, m, script, reserved);
+        }
         let Some(wasm) = &package.wasm else {
             return Ok(None);
         };
@@ -581,8 +764,8 @@ impl Mods {
             .entries
             .iter()
             .filter_map(|e| e.run.as_ref())
-            .filter(|r| r.hooks.server().is_some() == server)
-            .flat_map(|r| r.hooks.commands())
+            .filter(|r| r.is_server() == server)
+            .flat_map(|r| r.commands())
             .map(str::to_owned)
             .collect();
         let snapshot = self.snapshot.clone();
@@ -678,13 +861,68 @@ impl Mods {
         }
         self.generation += 1;
         self.out.append(&mut store.data_mut().out);
-        Ok(Some(Running {
+        Ok(Some(Running::Wasm(WasmRun {
             store,
             ui,
             hooks,
             raycasts: functions.iter().any(|f| f == "game.raycast"),
             reads_recipes: functions.iter().any(|f| f.starts_with("recipes.")),
-        }))
+        })))
+    }
+
+    /// A Lua script mod's start (docs/script-mods.md): no engine, no
+    /// toolchain, the same per-mod sandbox shape as a WebAssembly mod.
+    #[cfg(feature = "scripts")]
+    fn start_script(
+        &mut self,
+        path: &Path,
+        m: &Manifest,
+        script: &str,
+        reserved: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Running>, String> {
+        if self
+            .entries
+            .iter()
+            .any(|e| e.run.is_some() && e.manifest.as_ref().is_some_and(|other| other.id == m.id))
+        {
+            return Err(format!("another running mod already uses id {}", m.id));
+        }
+        let taken: Vec<String> = self
+            .entries
+            .iter()
+            .filter_map(|e| e.run.as_ref())
+            .filter(|r| !r.is_server())
+            .flat_map(|r| r.commands())
+            .map(str::to_owned)
+            .collect();
+        let mut run = script::LuaRun::start(
+            path,
+            m,
+            script,
+            self.snapshot.clone(),
+            self.world.clone(),
+        )?;
+        run.registration.commands.retain(|c| {
+            let free = !reserved(c) && !taken.iter().any(|t| t == c);
+            if !free {
+                log::warn!("Horizon: mod {} cannot take /{c}: already a command", m.id);
+            }
+            free
+        });
+        self.generation += 1;
+        self.out.append(&mut run.take_out());
+        Ok(Some(Running::Lua(run)))
+    }
+    /// A Lua script mod found by a build without the `scripts` feature.
+    #[cfg(not(feature = "scripts"))]
+    fn start_script(
+        &mut self,
+        _path: &Path,
+        _m: &Manifest,
+        _script: &str,
+        _reserved: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Running>, String> {
+        Err("this build of Horizon does not run Lua script mods".into())
     }
 
     /// True when at least one mod runs: the game skips its mod work otherwise.
@@ -695,7 +933,7 @@ impl Mods {
     pub fn runs_server(&self) -> bool {
         self.entries
             .iter()
-            .any(|e| e.run.as_ref().is_some_and(|r| r.hooks.server().is_some()))
+            .any(|e| e.run.as_ref().is_some_and(|r| r.is_server()))
     }
     pub fn entries(&self) -> &[Entry] {
         &self.entries
@@ -709,15 +947,11 @@ impl Mods {
     fn each(
         &mut self,
         fuel: u64,
-        wants: impl Fn(&Hooks) -> bool,
-        mut f: impl FnMut(&mut Running) -> wasmtime::Result<()>,
+        wants: impl Fn(&Running) -> bool,
+        mut f: impl FnMut(&mut Running) -> Result<(), String>,
     ) {
         for i in 0..self.entries.len() {
-            if self.entries[i]
-                .run
-                .as_ref()
-                .is_some_and(|r| wants(&r.hooks))
-            {
+            if self.entries[i].run.as_ref().is_some_and(&wants) {
                 self.call(i, fuel, &mut f);
             }
         }
@@ -727,16 +961,9 @@ impl Mods {
         &mut self,
         fuel: u64,
         wants: impl Fn(&Registration) -> bool,
-        mut f: impl FnMut(&ClientEvents, &mut Store<State>) -> wasmtime::Result<()>,
+        f: impl FnMut(&mut Running) -> Result<(), String>,
     ) {
-        self.each(
-            fuel,
-            |h| h.client().is_some_and(&wants),
-            |run| match &run.hooks {
-                Hooks::Client(m, _) => f(m.horizon_mods_events(), &mut run.store),
-                Hooks::Server(..) => Ok(()),
-            },
-        );
+        self.each(fuel, |r| r.client_reg().is_some_and(&wants), f);
     }
     /// [`Mods::each`] over the server mods.
     fn each_server(
@@ -747,10 +974,16 @@ impl Mods {
     ) {
         self.each(
             fuel,
-            |h| h.server().is_some_and(&wants),
-            |run| match &run.hooks {
-                Hooks::Server(m, _) => f(m.horizon_mods_server_events(), &mut run.store),
-                Hooks::Client(..) => Ok(()),
+            |r| matches!(r, Running::Wasm(w) if w.hooks.server().is_some_and(&wants)),
+            |run| {
+                let Some(w) = run.wasm_mut() else {
+                    return Ok(());
+                };
+                match &w.hooks {
+                    Hooks::Server(m, _) => f(m.horizon_mods_server_events(), &mut w.store)
+                        .map_err(|e| reason(&e)),
+                    Hooks::Client(..) => Ok(()),
+                }
             },
         );
     }
@@ -760,22 +993,28 @@ impl Mods {
         &mut self,
         i: usize,
         fuel: u64,
-        f: impl FnOnce(&mut Running) -> wasmtime::Result<R>,
+        f: impl FnOnce(&mut Running) -> Result<R, String>,
     ) -> Option<R> {
         let entry = &mut self.entries[i];
         let run = entry.run.as_mut()?;
-        run.store.data_mut().snapshot = self.snapshot.clone();
-        run.store.data_mut().storage_budget = STORAGE_WRITE_BUDGET;
+        {
+            let mut data = run.data_mut();
+            data.snapshot = self.snapshot.clone();
+            data.storage_budget = STORAGE_WRITE_BUDGET;
+        }
         let started = Instant::now();
-        let result = run.store.set_fuel(fuel).and_then(|()| f(run));
+        let result = run.set_limit(fuel).and_then(|()| f(run));
         // An average over about the last 64 calls.
         entry.cost = (entry.cost * 63 + started.elapsed()) / 64;
-        let data = run.store.data_mut();
-        let (open, close) = (
-            std::mem::take(&mut data.ui.open),
-            std::mem::take(&mut data.ui.close),
-        );
-        self.out.append(&mut data.out);
+        let (open, close) = {
+            let mut data = run.data_mut();
+            let flags = (
+                std::mem::take(&mut data.ui.open),
+                std::mem::take(&mut data.ui.close),
+            );
+            self.out.append(&mut data.out);
+            flags
+        };
         if open {
             self.out.push(Output::OpenScreen { owner: i });
         }
@@ -784,10 +1023,9 @@ impl Mods {
         }
         match result {
             Ok(r) => Some(r),
-            Err(e) => {
-                let reason = reason(&e);
-                log::warn!("Horizon: mod {} stopped: {reason}", run.store.data().id);
-                let name = run.store.data().name.clone();
+            Err(reason) => {
+                log::warn!("Horizon: mod {} stopped: {reason}", run.data().id);
+                let name = run.data().name.clone();
                 self.out.push(Output::Stopped {
                     name,
                     reason: reason.clone(),
@@ -802,15 +1040,15 @@ impl Mods {
 
     /// A game tick.
     pub fn tick(&mut self, tick: u64) {
-        self.each_client(FUEL_TICK, |h| h.tick, |m, s| m.call_tick(s, tick));
+        self.each_client(FUEL_TICK, |h| h.tick, |run| run.call_tick(tick));
     }
     /// A rendered frame, `seconds` after the last.
     pub fn frame(&mut self, seconds: f32) {
-        self.each_client(FUEL_FRAME, |h| h.frame, |m, s| m.call_frame(s, seconds));
+        self.each_client(FUEL_FRAME, |h| h.frame, |run| run.call_frame(seconds));
     }
     /// A chat line the player received, as plain text.
     pub fn chat(&mut self, text: &str) {
-        self.each_client(FUEL_EVENT, |h| h.chat, |m, s| m.call_chat(s, text));
+        self.each_client(FUEL_EVENT, |h| h.chat, |run| run.call_chat(text));
     }
     /// Whether a running client mod owns `/name`.
     pub fn has_command(&self, name: &str) -> bool {
@@ -818,9 +1056,9 @@ impl Mods {
     }
     fn command_owner(&self, server: bool, name: &str) -> Option<usize> {
         self.entries.iter().position(|e| {
-            e.run.as_ref().is_some_and(|r| {
-                r.hooks.server().is_some() == server && r.hooks.commands().contains(&name)
-            })
+            e.run
+                .as_ref()
+                .is_some_and(|r| r.is_server() == server && r.commands().contains(&name))
         })
     }
     /// Runs `line` (without its slash) if a client mod owns its command;
@@ -830,12 +1068,7 @@ impl Mods {
         let Some(i) = self.command_owner(false, name) else {
             return false;
         };
-        let result = self.call(i, FUEL_EVENT, |run| match &run.hooks {
-            Hooks::Client(m, _) => m
-                .horizon_mods_events()
-                .call_command(&mut run.store, name, args),
-            Hooks::Server(..) => Ok(Ok(None)),
-        });
+        let result = self.call(i, FUEL_EVENT, |run| run.call_command(name, args));
         match result {
             Some(Ok(Some(text))) => self.out.push(Output::Feedback { text, error: false }),
             Some(Err(text)) => self.out.push(Output::Feedback { text, error: true }),
@@ -851,8 +1084,8 @@ impl Mods {
         self.entries
             .iter()
             .filter_map(|e| e.run.as_ref())
-            .filter(move |r| r.hooks.server().is_some() == server)
-            .flat_map(|r| r.hooks.commands())
+            .filter(move |r| r.is_server() == server)
+            .flat_map(|r| r.commands())
     }
 
     /// A server tick.
@@ -900,7 +1133,7 @@ impl Mods {
     pub fn server_commands(&self) -> impl Iterator<Item = &ServerCommand> {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref()?.hooks.server())
+            .filter_map(|e| e.run.as_ref()?.wasm()?.hooks.server())
             .flat_map(|r| r.commands.iter())
     }
     /// Runs `line` (without its slash), typed by `player`, if a server mod
@@ -919,7 +1152,8 @@ impl Mods {
         let arguments = self.entries[i]
             .run
             .as_ref()
-            .and_then(|r| r.hooks.server())
+            .and_then(|r| r.wasm())
+            .and_then(|w| w.hooks.server())
             .and_then(|r| r.commands.iter().find(|c| c.name == name))
             .map(|c| c.arguments.as_slice())
             .unwrap_or_default();
@@ -930,15 +1164,17 @@ impl Mods {
                 return true;
             }
         };
-        let result = self.call(i, FUEL_EVENT, |run| match &run.hooks {
-            Hooks::Server(m, _) => m.horizon_mods_server_events().call_command(
-                &mut run.store,
-                player,
-                name,
-                args,
-                &values,
-            ),
-            Hooks::Client(..) => Ok(Ok(None)),
+        let result = self.call(i, FUEL_EVENT, |run| {
+            let Some(w) = run.wasm_mut() else {
+                return Ok(Ok(None));
+            };
+            match &w.hooks {
+                Hooks::Server(m, _) => m
+                    .horizon_mods_server_events()
+                    .call_command(&mut w.store, player, name, args, &values)
+                    .map_err(|e| reason(&e)),
+                Hooks::Client(..) => Ok(Ok(None)),
+            }
         });
         match result {
             Some(Ok(Some(text))) => self.out.push(reply(text, false)),
@@ -947,31 +1183,33 @@ impl Mods {
         }
         true
     }
-    /// The running mods' HUD panels.
-    pub fn panels(&self) -> impl Iterator<Item = &Panel> {
+    /// The running mods' HUD panels, cloned: a script mod's panel lives
+    /// behind its Lua state, so a reference cannot be lent.
+    pub fn panels(&self) -> impl Iterator<Item = Panel> + '_ {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref()?.store.data().panel.as_ref())
+            .filter_map(|e| e.run.as_ref())
+            .filter_map(|r| r.data().panel.clone())
     }
     /// The running mods' corner panels (capability `render`), in load order.
     pub fn corner_panels(&self) -> impl Iterator<Item = &CornerPanel> {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref()?.store.data().corner.as_ref())
+            .filter_map(|e| e.run.as_ref()?.wasm()?.store.data().corner.as_ref())
     }
     /// Some running mod calls `game.raycast`: the snapshot needs a
     /// [`Snapshot::view_hit`].
     pub fn wants_raycast(&self) -> bool {
         self.entries
             .iter()
-            .any(|e| e.run.as_ref().is_some_and(|r| r.raycasts))
+            .any(|e| e.run.as_ref().is_some_and(|r| r.wasm().is_some_and(|w| w.raycasts)))
     }
     /// The panel beside container screens (`browser.set-items`): the first
     /// running mod with items or recipes, its index, the panel's version and
     /// the items.
     pub fn browser_items(&self) -> Option<(usize, u64, &[BrowserStack])> {
         self.entries.iter().enumerate().find_map(|(i, e)| {
-            let b = &e.run.as_ref()?.store.data().browser;
+            let b = &e.run.as_ref()?.wasm()?.store.data().browser;
             (!b.items.is_empty() || b.recipes.is_some()).then_some((
                 i,
                 b.version,
@@ -982,20 +1220,30 @@ impl Mods {
     /// What mod `owner`'s panel shows instead of its items
     /// (`browser.set-recipes`).
     pub fn browser_recipes(&self, owner: usize) -> Option<&RecipePage> {
-        let b = &self.entries.get(owner)?.run.as_ref()?.store.data().browser;
+        let b = &self.entries.get(owner)?.run.as_ref()?.wasm()?.store.data().browser;
         b.recipes.as_ref()
     }
     /// The player did `event` on mod `owner`'s panel.
     pub fn browser_event(&mut self, owner: usize, event: BrowserEvent) {
-        if let Some(run) = self.entries.get_mut(owner).and_then(|e| e.run.as_mut()) {
-            run.store.data_mut().browser.push(event);
+        if let Some(w) = self
+            .entries
+            .get_mut(owner)
+            .and_then(|e| e.run.as_mut())
+            .and_then(|r| r.wasm_mut())
+        {
+            w.store.data_mut().browser.push(event);
         }
     }
     /// The key `key` went down with the pointer on `stack` in a container
     /// screen: each mod with a key on it hears its own name for it.
     pub fn browser_key(&mut self, key: &str, stack: &BrowserStack) {
-        for run in self.entries.iter_mut().filter_map(|e| e.run.as_mut()) {
-            let data = run.store.data_mut();
+        for w in self
+            .entries
+            .iter_mut()
+            .filter_map(|e| e.run.as_mut())
+            .filter_map(|r| r.wasm_mut())
+        {
+            let data = w.store.data_mut();
             let names: Vec<String> = data
                 .input
                 .keys
@@ -1014,9 +1262,11 @@ impl Mods {
     /// Some running mod reads capability `recipes`: the snapshot needs
     /// [`Snapshot::recipes`] and [`Snapshot::known_recipes`].
     pub fn wants_recipes(&self) -> bool {
-        self.entries
-            .iter()
-            .any(|e| e.run.as_ref().is_some_and(|r| r.reads_recipes))
+        self.entries.iter().any(|e| {
+            e.run
+                .as_ref()
+                .is_some_and(|r| r.wasm().is_some_and(|w| w.reads_recipes))
+        })
     }
     /// Some running mod has a `frame` hook: the game refreshes the snapshot
     /// every frame for it.
@@ -1024,7 +1274,7 @@ impl Mods {
         self.entries.iter().any(|e| {
             e.run
                 .as_ref()
-                .is_some_and(|r| r.hooks.client().is_some_and(|h| h.frame))
+                .is_some_and(|r| r.client_reg().is_some_and(|h| h.frame))
         })
     }
     /// Some running mod claimed items (capability `input`).
@@ -1043,9 +1293,9 @@ impl Mods {
     pub fn mod_keys(&self) -> impl Iterator<Item = (&str, &ModKey)> {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref())
-            .flat_map(|r| {
-                let d = r.store.data();
+            .filter_map(|e| e.run.as_ref()?.wasm())
+            .flat_map(|w| {
+                let d = w.store.data();
                 d.input.keys.iter().map(move |k| (d.name.as_str(), k))
             })
     }
@@ -1054,17 +1304,19 @@ impl Mods {
         self.entries
             .get(i)
             .and_then(|e| e.run.as_ref())
-            .map_or(&[], |r| r.store.data().input.keys.as_slice())
+            .and_then(|r| r.wasm())
+            .map_or(&[], |w| w.store.data().input.keys.as_slice())
     }
     /// The keys the player chose (`ui`'s key widget), by mod id: each
     /// running mod's `name → key`. They replace the defaults registered
     /// so far and later ones. Keys that aren't keys are skipped.
     pub fn set_bindings<'a>(&mut self, chosen: impl Fn(&str) -> Vec<(&'a str, &'a str)>) {
         for e in &mut self.entries {
-            let (Some(m), Some(run)) = (&e.manifest, e.run.as_mut()) else {
+            let (Some(m), Some(w)) = (&e.manifest, e.run.as_mut().and_then(|r| r.wasm_mut()))
+            else {
                 continue;
             };
-            let input = &mut run.store.data_mut().input;
+            let input = &mut w.store.data_mut().input;
             input.bindings = chosen(&m.id)
                 .into_iter()
                 .filter(|(_, key)| key_ok(key))
@@ -1079,10 +1331,15 @@ impl Mods {
     /// `key.mouse.4`, `key.keyboard.unknown` for none). False when the mod
     /// has no such key or `key` isn't one.
     pub fn rebind(&mut self, i: usize, name: &str, key: &str) -> bool {
-        let Some(run) = self.entries.get_mut(i).and_then(|e| e.run.as_mut()) else {
+        let Some(w) = self
+            .entries
+            .get_mut(i)
+            .and_then(|e| e.run.as_mut())
+            .and_then(|r| r.wasm_mut())
+        else {
             return false;
         };
-        let input = &mut run.store.data_mut().input;
+        let input = &mut w.store.data_mut().input;
         if !key_ok(key) || !input.keys.iter().any(|k| k.name == name) {
             return false;
         }
@@ -1111,8 +1368,13 @@ impl Mods {
     /// The key `key` (`key.keyboard.r`) went down or up: each mod with a
     /// key on it hears its own name for it.
     pub fn key(&mut self, key: &str, down: bool) {
-        for run in self.entries.iter_mut().filter_map(|e| e.run.as_mut()) {
-            let input = &mut run.store.data_mut().input;
+        for w in self
+            .entries
+            .iter_mut()
+            .filter_map(|e| e.run.as_mut())
+            .filter_map(|r| r.wasm_mut())
+        {
+            let input = &mut w.store.data_mut().input;
             let names: Vec<String> = input
                 .keys
                 .iter()
@@ -1141,8 +1403,13 @@ impl Mods {
     /// A screen opened, or the game stopped playing: every mod key held
     /// lets go (`key-up`), so a key needs a new press afterwards.
     pub fn release_keys(&mut self) {
-        for run in self.entries.iter_mut().filter_map(|e| e.run.as_mut()) {
-            let input = &mut run.store.data_mut().input;
+        for w in self
+            .entries
+            .iter_mut()
+            .filter_map(|e| e.run.as_mut())
+            .filter_map(|r| r.wasm_mut())
+        {
+            let input = &mut w.store.data_mut().input;
             for name in std::mem::take(&mut input.down) {
                 input.push(InputEvent::KeyUp(name));
             }
@@ -1164,29 +1431,34 @@ impl Mods {
     pub fn zoom(&self) -> Option<ModZoom> {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref()?.store.data().zoom)
+            .filter_map(|e| e.run.as_ref()?.wasm()?.store.data().zoom)
             .max_by(|a, b| a.factor.total_cmp(&b.factor))
     }
     /// The minimap the first running mod shows (capability `render`).
     pub fn minimap(&self) -> Option<ModMinimap> {
         self.entries
             .iter()
-            .find_map(|e| e.run.as_ref()?.store.data().minimap)
+            .find_map(|e| e.run.as_ref()?.wasm()?.store.data().minimap)
     }
     /// The far terrain the first running mod draws (capability `render`).
     pub fn far_terrain(&self) -> Option<ModFarTerrain> {
         self.entries
             .iter()
-            .find_map(|e| e.run.as_ref()?.store.data().far_terrain)
+            .find_map(|e| e.run.as_ref()?.wasm()?.store.data().far_terrain)
     }
     fn inputs(&self) -> impl Iterator<Item = &InputState> {
         self.entries
             .iter()
-            .filter_map(|e| Some(&e.run.as_ref()?.store.data().input))
+            .filter_map(|e| Some(&e.run.as_ref()?.wasm()?.store.data().input))
     }
     fn push_input(&mut self, to: impl Fn(&InputState) -> bool, event: &InputEvent) {
-        for run in self.entries.iter_mut().filter_map(|e| e.run.as_mut()) {
-            let input = &mut run.store.data_mut().input;
+        for w in self
+            .entries
+            .iter_mut()
+            .filter_map(|e| e.run.as_mut())
+            .filter_map(|r| r.wasm_mut())
+        {
+            let input = &mut w.store.data_mut().input;
             if to(input) {
                 input.push(event.clone());
             }
@@ -1197,8 +1469,8 @@ impl Mods {
     pub fn hud_shapes(&self) -> impl Iterator<Item = &Shape> {
         self.entries
             .iter()
-            .filter_map(|e| e.run.as_ref())
-            .flat_map(|r| &r.store.data().shapes)
+            .filter_map(|e| e.run.as_ref()?.wasm())
+            .flat_map(|w| &w.store.data().shapes)
     }
     /// The screen mod `i` last pushed with `ui.open-screen`, while it is up.
     pub fn screen(&self, i: usize) -> Option<&UiScreen> {
@@ -1206,6 +1478,7 @@ impl Mods {
             .get(i)?
             .run
             .as_ref()?
+            .wasm()?
             .store
             .data()
             .ui
@@ -1218,7 +1491,8 @@ impl Mods {
         self.entries
             .get(i)
             .and_then(|e| e.run.as_ref())
-            .map_or(&[], |r| &r.store.data().ui.settings)
+            .and_then(|r| r.wasm())
+            .map_or(&[], |w| &w.store.data().ui.settings)
     }
     /// A `list` widget's row was picked on a surface of mod `i`.
     pub fn ui_select(&mut self, i: usize, id: u32, row: u32) {
@@ -1247,10 +1521,13 @@ impl Mods {
             .entries
             .get(i)
             .and_then(|e| e.run.as_ref())
-            .is_some_and(|r| r.ui.is_some());
+            .and_then(|r| r.wasm())
+            .is_some_and(|w| w.ui.is_some());
         if has_ui {
             self.call(i, FUEL_EVENT, |run| {
-                f(run.ui.as_ref().expect("checked above"), &mut run.store)
+                let w = run.wasm_mut().expect("checked above");
+                f(w.ui.as_ref().expect("checked above"), &mut w.store)
+                    .map_err(|e| reason(&e))
             });
         }
     }
@@ -1328,11 +1605,14 @@ fn check_arguments(arguments: &[Argument]) -> Result<(), String> {
 fn modified(path: &Path) -> Option<SystemTime> {
     let meta = std::fs::metadata(path).ok()?;
     if meta.is_dir() {
-        // A folder mod changes when its component does.
-        return std::fs::metadata(path.join(crate::manifest::WASM))
-            .ok()?
-            .modified()
-            .ok();
+        // A folder mod changes when its component or script does.
+        let code = path.join(crate::manifest::WASM);
+        let code = if code.exists() {
+            code
+        } else {
+            path.join(crate::manifest::SCRIPT)
+        };
+        return std::fs::metadata(code).ok()?.modified().ok();
     }
     meta.modified().ok()
 }

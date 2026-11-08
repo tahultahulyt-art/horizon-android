@@ -1,0 +1,8 @@
+id = "kusobo_cps"
+name = "Kusobo CPS Counter"
+version = "1.0.0"
+description = "Clicks per second on the HUD. /cps moves the counter to another corner."
+authors = ["Kusobo"]
+api = "0.1"
+side = "client"
+capabilities = ["game-read", "hud", "chat", "storage"]

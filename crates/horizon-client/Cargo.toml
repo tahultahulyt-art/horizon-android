@@ -115,7 +115,7 @@ audio = ["horizon-client-render/audio"]
 controllers = ["dep:gilrs", "dep:horizon-dualsense", "horizon-client-input/controllers"]
 # Runs code mods (wasmtime and cranelift: a quarter of a clean build). On in every release build
 # (release.yml); the tests and probes don't need it. Content mods load without it.
-mods = ["horizon-mods/runtime"]
+mods = ["horizon-mods/runtime", "horizon-mods/scripts"]
 # Records the call sites of mob random draws (`mob_ai_probe` traces).
 rng-trace = ["horizon-core/rng-trace"]
 # Compatibility with earlier experiment commands: main already uses mimalloc.

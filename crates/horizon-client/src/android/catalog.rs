@@ -320,10 +320,10 @@ impl Catalog {
         }
         self.local.sort_by_key(|e| e.title.to_lowercase());
     }
-    pub fn kusobo_resource(&mut self, home: &Path, template: bool) {
+    pub fn kusobo_resource(&mut self, home: &Path, resource: crate::kusobo::Resource) {
         let game = self.config.game_home(home);
         self.job("Preparing Kusobo resource...", move || {
-            let message = crate::kusobo::install(&game, template)?;
+            let message = crate::kusobo::install(&game, resource)?;
             Ok(Reply::Kusobo(message))
         });
     }

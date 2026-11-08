@@ -1,0 +1,74 @@
+KUSOBO SCRIPT MODS - make your own mod on your phone
+====================================================
+
+A script mod is ONE zip file with two files inside:
+
+  1. horizon-mod.toml  - the mod's ID card (name, what it may do)
+  2. main.lua          - the mod's code (plain text, Lua language)
+
+No computer, no compiler. Make it with any file manager + text editor
+on your phone (ZArchiver works: New archive, or zip a folder and rename
+it from .zip to .ksmod).
+
+STEPS
+-----
+1. Copy the two files from this template into a new folder.
+2. Edit horizon-mod.toml:
+     id        - lowercase, a-z 0-9 _, unique (your mod's key)
+     name      - shown in Kusobo Loader
+     capabilities - what the mod MAY do. Only what it uses:
+         game-read  read player position/health, world time, CPS
+         hud        draw text panels on screen
+         chat       show lines in your chat
+         storage    remember small settings between sessions
+3. Edit main.lua (see the API below).
+4. Zip the two files (files at the zip ROOT, not in a folder inside).
+5. Rename the zip to <your-mod-id>.ksmod
+6. Kusobo Loader > Import file (or drop it in the horizon-mods folder).
+7. Installed > turn it ON > Play.
+8. Broken? Options > Mods shows the error next to the mod.
+
+THE API (what a script can use)
+-------------------------------
+Declare events and commands in the MOD table:
+
+  MOD = {
+    commands = { "mymod" },  -- /mymod ... in chat runs on_command
+    tick = true,             -- on_tick(t) every game tick
+    chat = false,            -- on_chat(text) for each chat line you get
+  }
+
+  log(text)                       -- write to the game log (always available)
+
+  game.player()  -> table or nil  -- .x .y .z .yaw .pitch .health .food .dimension
+  game.clock()   -> table or nil  -- .game_time .day_time
+  game.cps()     -> two numbers   -- attack clicks and use clicks, last second
+
+  hud.panel(corner, lines)        -- corner: "top-left" "top-right"
+                                  -- "bottom-left" "bottom-right"
+                                  -- lines: up to 16, each a string or
+                                  -- { text = "...", color = 0xRRGGBB }
+  hud.clear()
+
+  chat.show(text)                 -- a chat line only you see
+
+  storage.get(key) -> string or nil
+  storage.set(key, value)         -- keys: a-z 0-9 _ . - (max 64 chars)
+  storage.delete(key)
+
+  function on_tick(t) ... end
+  function on_chat(text) ... end
+  function on_command(name, args) ... return "shown as feedback" end
+      -- 'error("why")' inside on_command shows the reason in red
+
+RULES THAT KEEP YOUR GAME SAFE
+------------------------------
+- Scripts cannot read your files, use internet, or change the world.
+- A script that loops forever is turned off automatically; the game goes on.
+- Each event has a small time budget. Keep on_tick cheap: it runs 20x/second.
+- Mods stay OFF until you turn them on.
+
+IDEAS (what this API can do today)
+----------------------------------
+CPS counter, coordinates HUD, armor/health warning, play-time clock,
+death position note (/where + storage), kill-feed style chat parsing.

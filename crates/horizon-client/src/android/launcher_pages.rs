@@ -84,6 +84,8 @@ pub(super) enum Action {
     ChooseCacheBudget(u32),
     KusoboSample,
     KusoboTemplate,
+    KusoboScriptSample,
+    KusoboScriptTemplate,
     WorldFiles,
     GameFiles,
     FilesUp,
@@ -446,7 +448,7 @@ impl Launcher {
                 181.0,
                 color::MUTED,
                 if page == Page::Mods {
-                    ".hmod / WebAssembly. No Fabric/Forge .jar support."
+                    ".hmod / .ksmod, Lua or WebAssembly. No Fabric/Forge .jar support."
                 } else {
                     "Add files from your phone. Online catalogs are removed."
                 },
@@ -483,8 +485,10 @@ impl Launcher {
             );
             if page == Page::Mods {
                 for (i, (label, action)) in [
-                    ("Install sample", Action::KusoboSample),
-                    ("Export template", Action::KusoboTemplate),
+                    ("Lua sample", Action::KusoboScriptSample),
+                    ("Lua template", Action::KusoboScriptTemplate),
+                    ("Wasm sample", Action::KusoboSample),
+                    ("Wasm template", Action::KusoboTemplate),
                 ]
                 .into_iter()
                 .enumerate()
@@ -493,8 +497,8 @@ impl Launcher {
                         &mut ui,
                         &mut self.targets,
                         [
-                            32.0 + i as f32 * ((w - 72.0) / 2.0 + 8.0),
-                            315.0,
+                            32.0 + (i % 2) as f32 * ((w - 72.0) / 2.0 + 8.0),
+                            315.0 + (i / 2) as f32 * 50.0,
                             (w - 72.0) / 2.0,
                             42.0,
                         ],
@@ -507,9 +511,9 @@ impl Launcher {
                     Face::Regular,
                     13.0,
                     32.0,
-                    369.0,
+                    419.0,
                     color::MUTED,
-                    "Template: Config folder. No built-in mods.",
+                    "Lua mods: edit on your phone (guide in template). Wasm: needs a computer.",
                 );
             }
         } else if page == Page::Installed {
@@ -1190,8 +1194,18 @@ impl Launcher {
                 self.chooser = None;
                 self.catalog.status = "Disposable cache budget saved. Applies on next Play; not a total RAM or VRAM limit.".into();
             }
-            Some(Action::KusoboSample) => self.catalog.kusobo_resource(&self.home, false),
-            Some(Action::KusoboTemplate) => self.catalog.kusobo_resource(&self.home, true),
+            Some(Action::KusoboSample) => self
+                .catalog
+                .kusobo_resource(&self.home, crate::kusobo::Resource::Sample),
+            Some(Action::KusoboTemplate) => self
+                .catalog
+                .kusobo_resource(&self.home, crate::kusobo::Resource::Template),
+            Some(Action::KusoboScriptSample) => self
+                .catalog
+                .kusobo_resource(&self.home, crate::kusobo::Resource::ScriptSample),
+            Some(Action::KusoboScriptTemplate) => self
+                .catalog
+                .kusobo_resource(&self.home, crate::kusobo::Resource::ScriptTemplate),
             Some(Action::GameFiles) => {
                 self.catalog.status = if crate::platform::open_documents(crate::document_store::ROOT) {
                     "Game files opened. Worlds, mods, packs, shaders and reports are available here."

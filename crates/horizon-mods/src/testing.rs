@@ -260,7 +260,7 @@ impl TestGame {
             .map(str::to_owned)
             .collect()
     }
-    pub fn panel(&self) -> Option<&Panel> {
+    pub fn panel(&self) -> Option<Panel> {
         self.mods.panels().next()
     }
     pub fn status(&self) -> &Status {

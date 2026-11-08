@@ -6,6 +6,7 @@ Two kinds of mod run in Horizon:
 |---|---|---|---|
 | **Content mod** | `.hmod` | Data and assets: blocks, items, recipes, loot, tags, models, textures, structures. No code. | Read when the game starts |
 | **Native mod** | `.hnmod` | A [horizon-mixins](https://github.com/horizon-rust/horizon-mixins) bundle: Rust that changes the game's own source before it is compiled. | In a game the launcher builds for the player ([native-mods.md](native-mods.md)) |
+| **Script mod** | `.ksmod` | A plain-text Lua script (`main.lua`) in the same sandbox, written without a computer ([script-mods.md](script-mods.md)). | In the game, beside WebAssembly mods |
 
 Fabric and NeoForge jars do **not** run as they are: their code calls and patches Minecraft's Java classes, and
 Horizon has none. What carries over is the data and assets inside a jar ([modpacks.md](modpacks.md)).

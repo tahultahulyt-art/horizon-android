@@ -19,6 +19,10 @@ wit-component = { version = "0.254", optional = true }
 wit-parser = { version = "0.254", optional = true }
 # The functions a mod imports, for its API level (src/api_level.rs): the game and the registry index.
 wasmparser = { version = "0.254", optional = true }
+# Script mods (docs/script-mods.md): Luau, Roblox's Lua, vendored so no
+# system library is needed. Sandboxed by design: no file, network or
+# package library exists in it.
+mlua = { version = "0.11", features = ["luau", "vendored", "send"], optional = true }
 # The registry index's checks (feature `index`): SHA-256, and minisign signatures (no dependencies of its own).
 sha2 = { version = "0.10", optional = true }
 minisign-verify = { version = "0.3", optional = true }
@@ -35,6 +39,9 @@ wit-parser = "0.254"
 # content and packaging. Off by default so builds that don't run mods (the
 # game's tests and probes) skip wasmtime and cranelift.
 runtime = ["dep:wasmtime", "dep:wasmparser"]
+# Lua script mods (src/script.rs), alongside WebAssembly ones. Needs the
+# runtime: a script mod runs in the same per-mod sandbox shape.
+scripts = ["runtime", "dep:mlua"]
 pack = ["dep:wit-component", "dep:wit-parser"]
 # The mod registry's index (docs/api/mod-index.md): the launcher, the registry server and its CI.
 index = ["dep:sha2", "dep:minisign-verify", "dep:horizon-shader-api", "dep:wasmparser"]
@@ -51,3 +58,8 @@ required-features = ["pack"]
 
 [lints]
 workspace = true
+
+# Lua script mods (docs/script-mods.md).
+[[test]]
+name = "script"
+required-features = ["runtime", "scripts"]
