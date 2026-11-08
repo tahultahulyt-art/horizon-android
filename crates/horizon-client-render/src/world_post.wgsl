@@ -134,37 +134,32 @@ fn sample_history(uv: vec2<f32>) -> vec3<f32> {
     return vec4(mix(past, centre.rgb, share), centre.a);
 }
 
-// GLES-friendly camera motion blur: frame accumulation, Lunar-style. Each
-// frame keeps `params.x` of the previous shown frame, so turns and moving
-// models smear smoothly in every direction with no tap row to read as
-// banding - the look stays soft in third person too, where a directional
-// streak capped the camera's orbit into blotchy haze. No depth textureLoad;
-// the hand and HUD draw after this pass and stay sharp. `params.x` is 0 on
-// the frames the Rust side resets (first frame, teleports, F5's camera flip,
-// title screens, frame gaps), so no stale image bleeds through. The previous
-// frame lives in `blur_history`, written by this pass each frame.
+// GLES-friendly camera-turn blur: no depth textureLoad or previous image.
+// Far-plane reprojection provides rotational screen velocity only.
 struct MotionBlur {
     reproject: mat4x4<f32>,
-    // x: share of the previous frame kept (0 resets); y: FXAA on the fresh sample.
     params: vec4<f32>,
 };
 @group(0) @binding(5) var<uniform> motion_blur: MotionBlur;
-@group(0) @binding(6) var blur_history: texture_2d<f32>;
-
-// Interleaved gradient noise: a fixed per-pixel dither, so the 8-bit history
-// does not band as frames accumulate.
-fn blur_noise(pixel: vec2<f32>) -> f32 {
-    return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715))));
-}
-
 @fragment fn fs_motion_blur(in: PostOut) -> @location(0) vec4<f32> {
     let centre = textureSampleLevel(world, world_sampler, in.uv, 0.0);
     var base = centre.rgb;
     if motion_blur.params.y > 0.5 { base = fxaa_color(in).rgb; }
-    let keep = motion_blur.params.x;
-    if keep <= 0.0 { return vec4(base, centre.a); }
-    let previous = textureSampleLevel(blur_history, world_sampler, in.uv, 0.0).rgb;
-    let dither = (blur_noise(in.clip.xy) - 0.5) * (1.0 / 255.0);
-    // The alpha carries the emissive mark through to HDR output (hdr.wgsl).
-    return vec4(mix(base, previous, keep) + dither, centre.a);
+    let clip = vec4(in.uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);
+    let prior = motion_blur.reproject * clip;
+    if prior.w <= 0.0001 || motion_blur.params.x == 0.0 { return vec4(base, centre.a); }
+    let prior_uv = prior.xy / prior.w * vec2(0.5, -0.5) + vec2(0.5);
+    let pixels = (in.uv - prior_uv) * vec2<f32>(textureDimensions(world));
+    let speed = length(pixels);
+    // A large cut/FOV jump is a reset, not a streak across the display.
+    if speed < 0.5 || speed > 200.0 { return vec4(base, centre.a); }
+    let delta = (in.uv - prior_uv) * motion_blur.params.x * min(1.0, 20.0 / max(speed, 0.001));
+    var rgb = base * 0.4;
+    let texel = 0.5 / vec2<f32>(textureDimensions(world));
+    for (var i = 0; i < 4; i++) {
+        let offset = (f32(i) / 3.0 - 0.5) * delta;
+        let uv = clamp(in.uv + offset, texel, vec2(1.0) - texel);
+        rgb += textureSampleLevel(world, world_sampler, uv, 0.0).rgb * 0.15;
+    }
+    return vec4(rgb, centre.a);
 }

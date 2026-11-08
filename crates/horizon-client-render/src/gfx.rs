@@ -5484,8 +5484,7 @@ impl Renderer {
         let taa = !frame.title
             && self.pack_post.as_ref().is_none_or(|p| p.1.is_none())
             && self.native.as_ref().is_none_or(|n| n.post.is_none());
-        self.world_post
-            .update_motion(taa, view_proj, frame.camera, &self.queue);
+        self.world_post.update_motion(taa, view_proj, &self.queue);
         let jittered = self.world_post.jitter(
             [self.config.width, self.config.height],
             taa,
@@ -7833,7 +7832,7 @@ impl Renderer {
             );
         } else if scaled.is_some() {
             self.world_post
-                .finish(&self.device, &self.queue, &mut encoder, &view_target);
+                .finish(&self.queue, &mut encoder, &view_target);
         }
         if !frame.title {
             let (depth, depth_size) = match &scaled {

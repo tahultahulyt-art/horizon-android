@@ -148,6 +148,24 @@ impl Launcher {
                 log::warn!("Could not seed requested server/shader: {error}");
             }
         }
+        if !risiya {
+            // The Risiya-style defaults are the baseline in the standard build
+            // too: seeded for new installs, merged once into existing ones.
+            // Settings only - account, player name, server list and
+            // appearance stay untouched.
+            if let Err(error) = fresh_game_settings::seed(&home) {
+                log::warn!("Could not seed requested game settings: {error}");
+            }
+            if let Err(error) = fresh_defaults::seed(&home) {
+                log::warn!("Could not seed requested launch defaults: {error}");
+            }
+            if let Err(error) = fresh_game_settings::apply_to_existing(&home) {
+                log::warn!("Could not apply requested game settings: {error}");
+            }
+            if let Err(error) = fresh_defaults::migrate(&home) {
+                log::warn!("Could not apply requested launch defaults: {error}");
+            }
+        }
         if !risiya && let Err(error) = warm_shader::seed(&home) {
             log::warn!("Could not install optional Horizon Warm Lite: {error}");
         }

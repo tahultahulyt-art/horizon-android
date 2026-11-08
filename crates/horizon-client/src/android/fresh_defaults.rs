@@ -1,4 +1,5 @@
 //! Requested launch defaults are created only for a genuinely new installation.
+//! migrate() merges the same launcher defaults once into existing installs.
 use std::path::Path;
 
 pub fn seed(home: &Path) -> Result<bool, String> {
@@ -33,6 +34,36 @@ pub fn seed(home: &Path) -> Result<bool, String> {
         .open(path)
         .map_err(|e| e.to_string())?;
     file.write_all(br#"{"renderer":"open-gl","worker_limit":7,"cache_budget_mib":64,"display_hz":120,"performance_hints":true}"#).map_err(|e|e.to_string())?;
+    Ok(true)
+}
+
+/// One-time merge of the launcher defaults into an existing installation.
+/// Keys the defaults do not set keep the player's values; a malformed or
+/// missing launcher file is replaced with just the defaults. The touch
+/// layout (horizon-touch.json) is personal and is never rewritten here.
+pub fn migrate(home: &Path) -> Result<bool, String> {
+    let marker = home.join("risiya-style-launcher-defaults-v1");
+    if marker.try_exists().map_err(|e| e.to_string())? {
+        return Ok(false);
+    }
+    std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
+    let path = home.join("android-launcher.json");
+    let mut json: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    for (key, value) in [
+        ("renderer", serde_json::json!("open-gl")),
+        ("worker_limit", serde_json::json!(7)),
+        ("cache_budget_mib", serde_json::json!(64)),
+        ("display_hz", serde_json::json!(120)),
+        ("performance_hints", serde_json::json!(true)),
+    ] {
+        json.insert(key.to_string(), value);
+    }
+    let text = serde_json::to_string(&serde_json::Value::Object(json)).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    std::fs::write(marker, b"1").map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -75,6 +106,28 @@ mod tests {
         std::fs::write(&p, b"user changed").unwrap();
         assert_eq!(seed(&t.0), Ok(false));
         assert_eq!(std::fs::read(&p).unwrap(), b"user changed");
+    }
+    #[test]
+    fn migrate_merges_once_and_keeps_other_keys() {
+        let t = Temp::new();
+        std::fs::create_dir_all(&t.0).unwrap();
+        let config = t.0.join("android-launcher.json");
+        std::fs::write(&config, br#"{"renderer":"auto","custom":"kept"}"#).unwrap();
+        assert_eq!(migrate(&t.0), Ok(true));
+        let c: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        assert_eq!(c["renderer"], "open-gl");
+        assert_eq!(c["display_hz"], 120);
+        assert_eq!(c["custom"], "kept");
+        // The marker makes a second run a no-op.
+        std::fs::write(&config, br#"{"renderer":"auto"}"#).unwrap();
+        assert_eq!(migrate(&t.0), Ok(false));
+        assert_eq!(
+            std::fs::read(&config).unwrap(),
+            br#"{"renderer":"auto"}"#.to_vec()
+        );
+        // Touch layout is untouched.
+        assert!(!t.0.join("horizon-touch.json").exists());
     }
     #[test]
     fn existing_even_malformed_config_and_touch_are_never_replaced() {

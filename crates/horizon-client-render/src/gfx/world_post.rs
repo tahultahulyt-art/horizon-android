@@ -8,7 +8,7 @@
 //! vectors are the camera's, so what moves on its own leans on the neighbourhood
 //! clamp alone.
 
-use glam::{DMat4, DVec3, Mat4, Vec2, Vec3};
+use glam::{DMat4, DVec3, Mat4, Vec2};
 
 /// The TAA history format: 8 bits would band as frames accumulate.
 const HISTORY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -29,12 +29,6 @@ struct History {
     history: [wgpu::TextureView; 2],
     resolve: [wgpu::BindGroup; 2],
     show: [wgpu::BindGroup; 2],
-}
-
-/// Motion blur's ping-pong: the shown frame, blended into the next one.
-struct BlurHistory {
-    size: [u32; 2],
-    tex: [wgpu::TextureView; 2],
 }
 
 /// `world_post.wgsl`'s `Taa`.
@@ -65,17 +59,7 @@ pub struct Post {
     blur_uniform: wgpu::Buffer,
     pub motion_blur: bool,
     blur_on: bool,
-    /// Last frame's view and camera position, for gap and cut resets.
-    blur_previous: Option<(Mat4, DVec3)>,
-    /// When the previous shown frame was rendered, for the frame delta.
-    blur_last_instant: Option<std::time::Instant>,
-    /// The previous shown frame the blur blends with, and which side it writes next.
-    blur_history: Option<BlurHistory>,
-    blur_frame: u32,
-    /// Set when the history textures were (re)created: the next blend keeps nothing.
-    blur_reset: bool,
-    /// Binding 6 of the shared layout where no blur history is bound (copy/FXAA).
-    blur_dummy: wgpu::TextureView,
+    blur_previous: Option<(Mat4, std::time::Instant)>,
     format: wgpu::TextureFormat,
     /// World resolution relative to the window (0.5..=2.0).
     pub scale: f32,
@@ -107,22 +91,6 @@ impl Post {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let blur_dummy = device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Motion blur placeholder"),
-                size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
-            .create_view(&Default::default());
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Horizon post bindings"),
             entries: &[
@@ -149,16 +117,6 @@ impl Post {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
                     },
                     count: None,
                 },
@@ -303,11 +261,6 @@ impl Post {
             motion_blur: false,
             blur_on: false,
             blur_previous: None,
-            blur_last_instant: None,
-            blur_history: None,
-            blur_frame: 0,
-            blur_reset: true,
-            blur_dummy,
             layout,
             sampler,
             format,
@@ -324,72 +277,34 @@ impl Post {
         }
     }
 
-    /// Frame-accumulation blur (Lunar-style `motionbl 55`): the shader keeps
-    /// `params.x` of the previous shown frame, so turns smear smoothly in every
-    /// direction at any speed. No depth reads or object motion vectors. Shader
-    /// packs/title screens do not use this pass; the blend resets on them, on
-    /// frame gaps over 0.2s and on camera cuts.
-    pub fn update_motion(
-        &mut self,
-        playing: bool,
-        view: Mat4,
-        camera: DVec3,
-        queue: &wgpu::Queue,
-    ) {
-        let now = std::time::Instant::now();
-        let dt = self
-            .blur_last_instant
-            .map_or(f32::INFINITY, |last| now.duration_since(last).as_secs_f32());
-        self.update_motion_dt(playing, view, camera, dt, queue);
-        self.blur_last_instant = if self.blur_on { Some(now) } else { None };
-    }
-
-    /// Same as `update_motion`, with the frame delta supplied by the caller
-    /// (seconds since the previous frame) so tests can drive it directly.
-    pub fn update_motion_dt(
-        &mut self,
-        playing: bool,
-        view: Mat4,
-        camera: DVec3,
-        dt: f32,
-        queue: &wgpu::Queue,
-    ) {
+    /// Camera rotation only: no depth reads, history textures or object ghosting.
+    /// Shader packs/title screens do not use this pass; reset after gaps/cuts.
+    pub fn update_motion(&mut self, playing: bool, view: Mat4, queue: &wgpu::Queue) {
         self.blur_on = self.motion_blur && playing;
         if !self.blur_on {
             self.blur_previous = None;
             return;
         }
-        // 0.2s: a hitch in one frame no longer drops the blend.
-        let previous = self.blur_previous.filter(|_| dt <= 0.2);
-        // A camera cut (teleport, respawn, F5's flip) moves or turns far more
-        // between frames than any real step; blending across it would smear the
-        // old scene into the new. The rotation check reads the yaw change from
-        // the reprojection's (0,0) element: cos of it, whatever the projection.
-        let cut = previous.is_some_and(|(old, old_camera)| {
-            (old_camera - camera).length() > 2.0
-                || (old * view.inverse()).x_axis.truncate().dot(Vec3::X) < 0.0
-        });
-        self.blur_previous = Some((view, camera));
-        // The reprojection matrix is unused by the shader now; the layout stays.
+        let now = std::time::Instant::now();
+        let previous = self
+            .blur_previous
+            .filter(|(_, time)| now.duration_since(*time).as_secs_f32() <= 0.1);
+        let reproject = if self.blur_on {
+            previous.map_or(Mat4::IDENTITY, |(old, _)| old * view.inverse())
+        } else {
+            Mat4::IDENTITY
+        };
+        self.blur_previous = self.blur_on.then_some((view, now));
+        // 50% shutter, at most 20 screen pixels. Keep FXAA's centre sample.
         let mut data = [0.0f32; 20];
-        data[..16].copy_from_slice(&Mat4::IDENTITY.to_cols_array());
-        // Frame-rate-independent trails: keep = exp(-dt / 0.1s), so the trail
-        // fades with the same 0.1s time constant at any frame rate (about
-        // 0.85 per frame at 60fps, 0.77 at 38fps), capped at 0.95 so a slow
-        // frame cannot freeze a ghost in place. 0 on the first frame and on
-        // resets and cuts.
-        data[16] = if previous.is_some() && !cut {
-            (-dt / 0.1f32).exp().min(0.95)
+        data[..16].copy_from_slice(&reproject.to_cols_array());
+        data[16] = if previous.is_some() && self.blur_on {
+            0.5
         } else {
             0.0
         };
         data[17] = if self.antialias { 1.0 } else { 0.0 };
         queue.write_buffer(&self.blur_uniform, 0, bytemuck::cast_slice(&data));
-    }
-
-    /// Whether the motion blur pass runs this frame.
-    pub fn blur_active(&self) -> bool {
-        self.blur_on
     }
 
     /// Whether TAA is supported on this GPU/backend.
@@ -451,47 +366,9 @@ impl Post {
     ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
         if self.scale == 1.0 && !self.antialias && !self.taa_on && !self.blur_on && !always {
             self.target = None;
-            self.blur_history = None;
             return None;
         }
         let (size, output) = self.sizes(window);
-        // Motion blur's previous-frame image, at the size `finish` blends (TAA's
-        // output when it runs, else the world's). The world's 8-bit format: the
-        // blend decays too fast for banding to build up, and the shader dithers.
-        let blur_size = if self.taa_on { output } else { size };
-        if !self.blur_on {
-            self.blur_history = None;
-        } else if self
-            .blur_history
-            .as_ref()
-            .is_none_or(|h| h.size != blur_size)
-        {
-            let tex = |label| {
-                device
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some(label),
-                        size: wgpu::Extent3d {
-                            width: blur_size[0],
-                            height: blur_size[1],
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: self.format,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                            | wgpu::TextureUsages::TEXTURE_BINDING,
-                        view_formats: &[],
-                    })
-                    .create_view(&Default::default())
-            };
-            self.blur_history = Some(BlurHistory {
-                size: blur_size,
-                tex: [tex("Blur history A"), tex("Blur history B")],
-            });
-            self.blur_frame = 0;
-            self.blur_reset = true;
-        }
         let history_size = self.taa_on.then_some(output);
         if self
             .target
@@ -610,124 +487,30 @@ impl Post {
                     binding: 5,
                     resource: self.blur_uniform.as_entire_binding(),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&self.blur_dummy),
-                },
             ],
         })
     }
 
-    /// Draw the scaled world onto `screen`, through TAA when this frame's `jitter`
-    /// had it on and through motion blur when that is on.
+    /// Draw the scaled world onto `screen`, through TAA when this frame's `jitter` had it on.
     pub fn finish(
-        &mut self,
-        device: &wgpu::Device,
+        &self,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         screen: &wgpu::TextureView,
     ) {
-        /// What `finish` draws once the TAA resolve (if any) ran. Owned, so the
-        /// target's borrow ends before `blur_frame` needs `&mut self`.
-        enum Out {
-            Copy(wgpu::BindGroup),
-            Blur(wgpu::TextureView),
-        }
         let Some(target) = &self.target else { return };
-        let taa = target
-            .taa
-            .as_ref()
-            .filter(|_| self.taa_previous.is_some())
-            .zip(self.taa_resources.as_ref());
-        let out = if let Some((taa, res)) = taa {
-            let i = (self.taa_frame % 2) as usize;
-            queue.write_buffer(&res.uniform, 0, bytemuck::bytes_of(&self.taa_this_frame));
-            let attachments = [Some(wgpu::RenderPassColorAttachment {
-                view: &taa.history[i],
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })];
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Horizon TAA"),
-                color_attachments: &attachments,
-                ..Default::default()
-            });
-            pass.set_pipeline(&res.pipeline);
-            pass.set_bind_group(0, &taa.resolve[i], &[]);
-            pass.draw(0..3, 0..1);
-            drop(pass);
-            if self.blur_on {
-                Out::Blur(taa.history[i].clone())
-            } else {
-                Out::Copy(taa.show[i].clone())
-            }
-        } else if self.blur_on {
-            Out::Blur(target.color.clone())
-        } else {
-            Out::Copy(target.group.clone())
-        };
-        match out {
-            Out::Copy(group) => self.finish_with(encoder, screen, &group),
-            Out::Blur(source) => self.blur_frame(device, queue, encoder, &source, screen),
-        }
-    }
-
-    /// One motion-blur frame: blend `source` with the previous shown frame and
-    /// draw the result to `screen`, keeping it as the next frame's history.
-    pub fn blur_frame(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        source: &wgpu::TextureView,
-        screen: &wgpu::TextureView,
-    ) {
-        // A (re)created history starts blank: this frame resets the blend
-        // instead of mixing black in.
-        if self.blur_reset {
-            self.blur_reset = false;
-            let mut data = [0.0f32; 20];
-            data[..16].copy_from_slice(&Mat4::IDENTITY.to_cols_array());
-            data[17] = if self.antialias { 1.0 } else { 0.0 };
-            queue.write_buffer(&self.blur_uniform, 0, bytemuck::cast_slice(&data));
-        }
-        let Some(history) = &self.blur_history else {
-            let group = self.bind(device, source);
-            self.copy_to(encoder, screen, &group);
+        let Some(taa) = target.taa.as_ref().filter(|_| self.taa_previous.is_some()) else {
+            self.finish_with(encoder, screen, &target.group);
             return;
         };
-        let i = (self.blur_frame % 2) as usize;
-        let group = |view: &wgpu::TextureView, past: &wgpu::TextureView| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Horizon motion blur"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: self.blur_uniform.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::TextureView(past),
-                    },
-                ],
-            })
+        let Some(res) = &self.taa_resources else {
+            self.finish_with(encoder, screen, &target.group);
+            return;
         };
-        let blend = group(source, &history.tex[1 - i]);
+        let i = (self.taa_frame % 2) as usize;
+        queue.write_buffer(&res.uniform, 0, bytemuck::bytes_of(&self.taa_this_frame));
         let attachments = [Some(wgpu::RenderPassColorAttachment {
-            view: &history.tex[i],
+            view: &taa.history[i],
             resolve_target: None,
             depth_slice: None,
             ops: wgpu::Operations {
@@ -736,43 +519,15 @@ impl Post {
             },
         })];
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Horizon motion blur"),
+            label: Some("Horizon TAA"),
             color_attachments: &attachments,
             ..Default::default()
         });
-        pass.set_pipeline(&self.blur);
-        pass.set_bind_group(0, &blend, &[]);
+        pass.set_pipeline(&res.pipeline);
+        pass.set_bind_group(0, &taa.resolve[i], &[]);
         pass.draw(0..3, 0..1);
         drop(pass);
-        let show = group(&history.tex[i], &history.tex[1 - i]);
-        self.copy_to(encoder, screen, &show);
-        self.blur_frame = self.blur_frame.wrapping_add(1);
-    }
-
-    /// Copy what `group` binds onto `screen`, without the blur/FXAA pick.
-    fn copy_to(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        screen: &wgpu::TextureView,
-        group: &wgpu::BindGroup,
-    ) {
-        let attachments = [Some(wgpu::RenderPassColorAttachment {
-            view: screen,
-            resolve_target: None,
-            depth_slice: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Horizon post"),
-            color_attachments: &attachments,
-            ..Default::default()
-        });
-        pass.set_pipeline(&self.copy);
-        pass.set_bind_group(0, group, &[]);
-        pass.draw(0..3, 0..1);
+        self.finish_with(encoder, screen, &taa.show[i]);
     }
 
     /// Draw what `group` binds (`bind`) onto `screen`.
