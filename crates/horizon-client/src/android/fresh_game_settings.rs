@@ -26,7 +26,7 @@ pub fn seed(home: &Path) -> Result<bool, String> {
             .open(home.join(name))
             .map_err(|e| e.to_string())?;
         f.write_all(text.as_bytes())
-            .and_then(|f| f.sync_all())
+            .and_then(|_| f.sync_all())
             .map_err(|e| e.to_string())?;
     }
     Ok(true)
