@@ -65,8 +65,10 @@ pub struct Post {
     blur_uniform: wgpu::Buffer,
     pub motion_blur: bool,
     blur_on: bool,
-    /// Last frame's view, camera position and time, for gap and cut resets.
-    blur_previous: Option<(Mat4, DVec3, std::time::Instant)>,
+    /// Last frame's view and camera position, for gap and cut resets.
+    blur_previous: Option<(Mat4, DVec3)>,
+    /// When the previous shown frame was rendered, for the frame delta.
+    blur_last_instant: Option<std::time::Instant>,
     /// The previous shown frame the blur blends with, and which side it writes next.
     blur_history: Option<BlurHistory>,
     blur_frame: u32,
@@ -301,6 +303,7 @@ impl Post {
             motion_blur: false,
             blur_on: false,
             blur_previous: None,
+            blur_last_instant: None,
             blur_history: None,
             blur_frame: 0,
             blur_reset: true,
@@ -333,30 +336,53 @@ impl Post {
         camera: DVec3,
         queue: &wgpu::Queue,
     ) {
+        let now = std::time::Instant::now();
+        let dt = self
+            .blur_last_instant
+            .map_or(f32::INFINITY, |last| now.duration_since(last).as_secs_f32());
+        self.update_motion_dt(playing, view, camera, dt, queue);
+        self.blur_last_instant = if self.blur_on { Some(now) } else { None };
+    }
+
+    /// Same as `update_motion`, with the frame delta supplied by the caller
+    /// (seconds since the previous frame) so tests can drive it directly.
+    pub fn update_motion_dt(
+        &mut self,
+        playing: bool,
+        view: Mat4,
+        camera: DVec3,
+        dt: f32,
+        queue: &wgpu::Queue,
+    ) {
         self.blur_on = self.motion_blur && playing;
         if !self.blur_on {
             self.blur_previous = None;
             return;
         }
-        let now = std::time::Instant::now();
         // 0.2s: a hitch in one frame no longer drops the blend.
-        let previous = self
-            .blur_previous
-            .filter(|(_, _, time)| now.duration_since(*time).as_secs_f32() <= 0.2);
+        let previous = self.blur_previous.filter(|_| dt <= 0.2);
         // A camera cut (teleport, respawn, F5's flip) moves or turns far more
         // between frames than any real step; blending across it would smear the
         // old scene into the new. The rotation check reads the yaw change from
         // the reprojection's (0,0) element: cos of it, whatever the projection.
-        let cut = previous.is_some_and(|(old, old_camera, _)| {
+        let cut = previous.is_some_and(|(old, old_camera)| {
             (old_camera - camera).length() > 2.0
                 || (old * view.inverse()).x_axis.truncate().dot(Vec3::X) < 0.0
         });
-        self.blur_previous = Some((view, camera, now));
+        self.blur_previous = Some((view, camera));
         // The reprojection matrix is unused by the shader now; the layout stays.
         let mut data = [0.0f32; 20];
         data[..16].copy_from_slice(&Mat4::IDENTITY.to_cols_array());
-        // 55% of the previous frame stays; 0 on the first frame and on resets.
-        data[16] = if previous.is_some() && !cut { 0.55 } else { 0.0 };
+        // Frame-rate-independent trails: keep = exp(-dt / 0.1s), so the trail
+        // fades with the same 0.1s time constant at any frame rate (about
+        // 0.85 per frame at 60fps, 0.77 at 38fps), capped at 0.95 so a slow
+        // frame cannot freeze a ghost in place. 0 on the first frame and on
+        // resets and cuts.
+        data[16] = if previous.is_some() && !cut {
+            (-dt / 0.1f32).exp().min(0.95)
+        } else {
+            0.0
+        };
         data[17] = if self.antialias { 1.0 } else { 0.0 };
         queue.write_buffer(&self.blur_uniform, 0, bytemuck::cast_slice(&data));
     }

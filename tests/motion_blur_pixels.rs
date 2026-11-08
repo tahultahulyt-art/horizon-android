@@ -130,36 +130,36 @@ fn main() {
     };
     // Blur OFF: plain copies.
     post.motion_blur = false;
-    post.update_motion(true, old, cam, &queue);
+    post.update_motion_dt(true, old, cam, 1.0 / 38.0, &queue);
     let ref_a = capture(&mut post, &view_a, "off-a");
     let ref_b = capture(&mut post, &view_b, "off-b");
     // Blur ON: the first frame has no history and stays sharp...
     post.motion_blur = true;
-    post.update_motion(true, old, cam, &queue);
+    post.update_motion_dt(true, old, cam, 1.0 / 38.0, &queue);
     post.prepare(&device, [w, h], false);
     let first = capture(&mut post, &view_a, "on-first");
     // ...and the turn blends the new view with the previous one.
-    post.update_motion(true, turned, cam, &queue);
+    post.update_motion_dt(true, turned, cam, 1.0 / 38.0, &queue);
     let blended = capture(&mut post, &view_b, "on-turned");
     // A stationary camera converges back to sharp.
-    for _ in 0..12 {
-        post.update_motion(true, turned, cam, &queue);
+    for _ in 0..25 {
+        post.update_motion_dt(true, turned, cam, 1.0 / 38.0, &queue);
         capture(&mut post, &view_b, "stationary-settle");
     }
-    post.update_motion(true, turned, cam, &queue);
+    post.update_motion_dt(true, turned, cam, 1.0 / 38.0, &queue);
     let steady = capture(&mut post, &view_b, "stationary");
     // A title/pack frame drops the history; the next frame is sharp.
-    post.update_motion(false, turned, cam, &queue);
-    post.update_motion(true, turned, cam, &queue);
+    post.update_motion_dt(false, turned, cam, 1.0 / 38.0, &queue);
+    post.update_motion_dt(true, turned, cam, 1.0 / 38.0, &queue);
     let reset = capture(&mut post, &view_b, "reset");
     // A camera cut (F5's flip, a teleport) must not smear the old view in.
-    post.update_motion(true, turned, cam, &queue);
+    post.update_motion_dt(true, turned, cam, 1.0 / 38.0, &queue);
     capture(&mut post, &view_b, "cut-warmup");
-    post.update_motion(true, flipped, cam, &queue);
+    post.update_motion_dt(true, flipped, cam, 1.0 / 38.0, &queue);
     let cut = capture(&mut post, &view_b, "cut");
-    post.update_motion(true, flipped, cam, &queue);
+    post.update_motion_dt(true, flipped, cam, 1.0 / 38.0, &queue);
     capture(&mut post, &view_b, "jump-warmup");
-    post.update_motion(true, flipped, cam + glam::DVec3::new(10.0, 0.0, 0.0), &queue);
+    post.update_motion_dt(true, flipped, cam + glam::DVec3::new(10.0, 0.0, 0.0), 1.0 / 38.0, &queue);
     let jumped = capture(&mut post, &view_b, "jump");
     assert_eq!(first, ref_a, "the first frame has no history: sharp");
     assert!(
