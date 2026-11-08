@@ -348,7 +348,7 @@ impl Post {
         // old scene into the new. The rotation check reads the yaw change from
         // the reprojection's (0,0) element: cos of it, whatever the projection.
         let cut = previous.is_some_and(|(old, old_camera, _)| {
-            (*old_camera - camera).length() > 2.0
+            (old_camera - camera).length() > 2.0
                 || (old * view.inverse()).x_axis.truncate().dot(Vec3::X) < 0.0
         });
         self.blur_previous = Some((view, camera, now));
