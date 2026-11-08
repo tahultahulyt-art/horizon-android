@@ -81,6 +81,16 @@ class ReleaseAuditTests(unittest.TestCase):
         self.assertEqual(report['findings'][0]['kind'], 'github_token')
         self.assertNotIn(token.decode(), str(report))
 
+    def test_native_library_needing_unbundled_stl_is_rejected(self):
+        report = self.inspect(extra={'lib/arm64-v8a/libtest.so': b'ELF\x00' + b'libc++_shared.so\x00'})
+        self.assertIn(('lib/arm64-v8a/libtest.so', 'missing_native_dependency'),
+                      {(f['path'], f['kind']) for f in report['findings']})
+
+    def test_native_library_needing_bundled_stl_passes(self):
+        report = self.inspect(extra={'lib/arm64-v8a/libtest.so': b'ELF\x00' + b'libc++_shared.so\x00',
+                                     'lib/arm64-v8a/libc++_shared.so': b'ELF\x00'})
+        self.assertNotIn('missing_native_dependency', {f['kind'] for f in report['findings']})
+
     def test_personal_build_path_and_private_key_are_rejected(self):
         key = b'-----BEGIN ' + b'PRIVATE KEY-----'
         report = self.inspect(extra={'lib/arm64-v8a/libtest.so': b'C:/Users/example/.cargo/source.rs\x00' + key})

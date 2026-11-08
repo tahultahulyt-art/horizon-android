@@ -197,6 +197,14 @@ def main():
         if not library.is_file():
             raise FileNotFoundError(library)
         shutil.copyfile(library, staging / name)
+    # Crates with C++ sources (the Luau script runtime) link libc++_shared, and
+    # Android refuses to load the game library when the APK does not bundle it.
+    if b'libc++_shared.so\x00' in (staging / 'libhorizon_android.so').read_bytes():
+        stl_dir = 'arm-linux-androideabi' if args.abi == 'armeabi-v7a' else target
+        stl = ndk / 'sysroot' / 'usr' / 'lib' / stl_dir / 'libc++_shared.so'
+        if not stl.is_file():
+            raise FileNotFoundError(stl)
+        shutil.copyfile(stl, staging / 'libc++_shared.so')
         run([ndk / 'bin' / ('llvm-strip' + suffix), '--strip-unneeded', staging / name])
         if args.profile == 'release':
             save_crash_symbols(library, staging / name, args.abi,

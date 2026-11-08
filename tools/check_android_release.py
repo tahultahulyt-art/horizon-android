@@ -80,6 +80,14 @@ def inspect_payload(path, public=False):
         if public and 'assets/bedrock-controls.zip' in archive.namelist():
             raise ValueError('Public APK must download original control textures, not bundle them')
         walk(archive)
+        # A native library that needs libc++_shared cannot load on Android when
+        # the APK omits it (the app dies at the splash screen).
+        if 'lib/arm64-v8a/libc++_shared.so' not in archive.namelist() and not any(
+                n.endswith('/libc++_shared.so') for n in archive.namelist()):
+            for entry in archive.infolist():
+                if entry.filename.startswith('lib/') and entry.filename.endswith('.so') and not entry.is_dir() \
+                        and b'libc++_shared.so\x00' in archive.read(entry):
+                    findings.append({'path': entry.filename, 'kind': 'missing_native_dependency'})
     return {**totals, 'findings': findings}
 
 
