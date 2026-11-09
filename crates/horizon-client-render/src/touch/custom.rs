@@ -95,11 +95,18 @@ impl TouchControls {
         false
     }
     pub(super) fn fit_placement(&self, mut p: Placement) -> Placement {
-        p.size = (p.size * self.settings.button_scale)
-            .min(self.aspect())
-            .min(1.0);
+        p.size = (p.size
+            * self.settings.button_scale
+            * if self.settings.boxed_layout {
+                layout::boxed_scale(self.aspect())
+            } else {
+                1.0
+            })
+        .min(self.aspect() / p.wide)
+        .min(1.0);
         let half = [p.size * p.wide / self.aspect() / 2.0, p.size / 2.0];
         for (i, half) in half.into_iter().enumerate() {
+            let half = half.min(0.5);
             p.center[i] = p.center[i].clamp(half, 1.0 - half);
         }
         p

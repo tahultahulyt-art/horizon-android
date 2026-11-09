@@ -123,6 +123,11 @@ impl TouchControls {
             && let Some(selected) = e.selected
         {
             let aspect = self.aspect();
+            let layout_scale = if self.settings.boxed_layout {
+                layout::boxed_scale(aspect)
+            } else {
+                1.0
+            };
             let slot = self.settings.slot(selected);
             let place = &mut self.settings.layouts[self.settings.mode.index()][slot];
             match drag {
@@ -134,10 +139,10 @@ impl TouchControls {
                     // Match the displayed size on narrow portrait surfaces.
                     // A stored button may be wider than the screen; its raw
                     // size would otherwise produce inverted clamp bounds.
-                    let size = (place.size * self.settings.button_scale)
-                        .min(aspect)
+                    let size = (place.size * self.settings.button_scale * layout_scale)
+                        .min(aspect / place.wide)
                         .min(1.0);
-                    let half = size * place.wide / aspect / 2.0;
+                    let half = (size * place.wide / aspect / 2.0).min(0.5);
                     place.center = [
                         center[0].clamp(half, 1.0 - half),
                         center[1].clamp(size / 2.0, 1.0 - size / 2.0),
@@ -453,6 +458,11 @@ impl TouchControls {
             && *owner == id
         {
             let aspect = self.aspect();
+            let layout_scale = if self.settings.boxed_layout {
+                layout::boxed_scale(aspect)
+            } else {
+                1.0
+            };
             let scale = self.settings.button_scale;
             let mirror = self.settings.left_handed;
             let place =
@@ -463,8 +473,10 @@ impl TouchControls {
                     if mirror {
                         center[0] = 1.0 - center[0];
                     }
-                    let size = (place.size * scale).min(aspect).min(1.0);
-                    let half = size * place.wide / aspect / 2.0;
+                    let size = (place.size * scale * layout_scale)
+                        .min(aspect / place.wide)
+                        .min(1.0);
+                    let half = (size * place.wide / aspect / 2.0).min(0.5);
                     place.center = [
                         center[0].clamp(half, 1.0 - half),
                         center[1].clamp(size / 2.0, 1.0 - size / 2.0),

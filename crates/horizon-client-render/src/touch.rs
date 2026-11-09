@@ -977,9 +977,24 @@ fn flat_box(
     }
     let width = HudBatch::text_width(a, label);
     let start = b.vertices.len();
-    b.text(a, label, x + (w - width) / 2.0, y + (h - 8.0) / 2.0, color, false);
-    let scale = ((w - 6.0).max(1.0) / width.max(1.0)).min(h * 0.42 / 8.0);
-    b.scale_since(start, x + w / 2.0, y + h / 2.0, scale, scale);
+    let mouse = matches!(label, "PRI" | "SEC");
+    let cy = y + h * if mouse { 0.25 } else { 0.5 };
+    b.text(a, label, x + (w - width) / 2.0, cy - 4.0, color, false);
+    let scale = ((w - 6.0).max(1.0) / width.max(1.0)).min((h * 0.42).min(w * 0.23) / 8.0);
+    b.scale_since(start, x + w / 2.0, cy, scale, scale);
+    if mouse {
+        let side = w.min(h) * 0.14;
+        let (sx, sy) = (x + (w - side) / 2.0, y + h * 0.76 - side / 2.0);
+        if label == "SEC" {
+            b.fill(a, sx, sy, side, side, color);
+        } else {
+            let edge = (side * 0.08).max(0.5);
+            b.fill(a, sx, sy, side, edge, color);
+            b.fill(a, sx, sy + side - edge, side, edge, color);
+            b.fill(a, sx, sy, edge, side, color);
+            b.fill(a, sx + side - edge, sy, edge, side, color);
+        }
+    }
 }
 
 /// Eight flat cells (arrows and diagonals) around an empty centre.

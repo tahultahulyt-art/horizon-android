@@ -188,6 +188,7 @@ pub struct Settings {
     /// 0 for profiles made before the flat boxed layout; it is applied once.
     #[serde(default)]
     pub layout_rev: u32,
+    pub boxed_layout: bool,
     #[serde(deserialize_with = "deserialize_layouts")]
     pub layouts: [[Placement; 14]; 3],
 }
@@ -276,6 +277,7 @@ impl Default for Settings {
             horizontal_margin: 0.0,
             vertical_margin: 0.0,
             layout_rev: 1,
+            boxed_layout: false,
             layouts,
         }
     }
@@ -325,6 +327,11 @@ impl Settings {
             }
         }
         if s.layout_rev < 1 {
+            // Keep a one-time recovery copy before replacing the requested layout.
+            let backup = path.with_extension("json.before-boxed");
+            if !backup.exists() && path.exists() {
+                let _ = std::fs::copy(path, backup);
+            }
             s.apply_boxed_layout();
             s.layout_rev = 1;
             s.sanitize();
@@ -357,14 +364,23 @@ impl Settings {
         base[Control::Perspective as usize] = at(360.0, 0.0, 180.0, 67.0);
         base[Control::Offhand as usize] = at(930.0, 433.0, 150.0, 90.0);
         base[Control::Shield as usize] = at(930.0, 533.0, 150.0, 90.0);
+        self.boxed_layout = true;
         self.layouts = [base; 3];
         self.mode = Mode::Dpad;
         self.split_controls = true;
         self.button_visibility[Control::Sprint as usize] = 1;
         let keys = [
             ("key.keyboard.tab", "TAB", at(0.0, 67.0, 180.0, 66.0)),
-            ("key.keyboard.left.control", "CTRL", at(81.0, 186.0, 180.0, 66.0)),
-            ("key.keyboard.left.alt", "ALT", at(261.0, 186.0, 180.0, 66.0)),
+            (
+                "key.keyboard.left.control",
+                "CTRL",
+                at(81.0, 186.0, 180.0, 66.0),
+            ),
+            (
+                "key.keyboard.left.alt",
+                "ALT",
+                at(261.0, 186.0, 180.0, 66.0),
+            ),
         ];
         self.custom_buttons
             .retain(|b| !keys.iter().any(|(token, _, _)| b.key == *token));
@@ -512,6 +528,10 @@ impl Settings {
         }
         p
     }
+}
+/// Shrink the reference layout together on narrower surfaces, keeping grid cells apart.
+pub(super) fn boxed_scale(aspect: f32) -> f32 {
+    (aspect / (1598.0 / 719.0)).min(1.0)
 }
 pub fn contains([x, y, w, h]: [f32; 4], p: [f32; 2]) -> bool {
     (x..=x + w).contains(&p[0]) && (y..=y + h).contains(&p[1])
