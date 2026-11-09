@@ -208,7 +208,14 @@ impl LuaRun {
         match self.call("on_command", (name, args)) {
             Ok(Value::String(s)) => Ok(Some(s.to_string_lossy())),
             Ok(_) => Ok(None),
-            Err(e) => Err(super::clip(e)),
+            Err(e) => {
+                // A command's `error("why")` answers "why" in red: no hook
+                // name, "runtime error" or stack traceback around it.
+                let e = e.split("\nstack traceback").next().unwrap_or(&e);
+                let e = e.strip_prefix("on_command: ").unwrap_or(e);
+                let e = e.strip_prefix("runtime error: ").unwrap_or(e);
+                Err(super::clip(e.trim().to_owned()))
+            }
         }
     }
 }
