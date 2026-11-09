@@ -1,7 +1,7 @@
 -- CK Kits: /ck save <name>, /ck load <name>, /ck list, /ck delete <name>.
 -- Kits are global (same in every world and on your own server). Save, list
--- and delete work in any game mode; load works only in creative mode. A kit holds the whole inventory: hotbar, main
--- slots, armor and offhand, with enchants and names.
+-- and delete work in any game mode; load needs creative mode or operator rights.
+-- A kit holds the whole inventory: hotbar, main slots, armor and offhand, with enchants and names.
 
 MOD = { commands = { "ck" } }
 
@@ -52,8 +52,8 @@ function on_command(cmd, args)
   if sub ~= "save" and sub ~= "load" and sub ~= "delete" then
     error(USAGE, 0)
   end
-  if sub == "load" and not inventory.creative() then
-    error("Loading a kit works only in creative mode", 0)
+  if sub == "load" and not (inventory.creative() or inventory.operator()) then
+    error("Loading a kit needs creative mode or operator rights on this server", 0)
   end
   local name = clean(rest)
   if not name then

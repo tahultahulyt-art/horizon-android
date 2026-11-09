@@ -181,6 +181,10 @@ fn ck_kits_save_works_anywhere_load_needs_creative() {
     assert!(game.command("ck load a"));
     let (text, error) = feedback(&mut game);
     assert!(error && text.contains("creative"), "{text}");
+    game.operator = true;
+    assert!(game.command("ck load a"));
+    let out = game.drain();
+    assert!(matches!(&out[..], [Output::SetInventory { .. }, Output::Feedback { error: false, .. }]), "{out:?}");
     assert!(game.command("ck delete a"));
     assert!(!feedback(&mut game).1);
 }

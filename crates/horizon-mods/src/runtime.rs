@@ -166,6 +166,8 @@ pub struct Snapshot {
     pub placing: bool,
     /// The player is in creative mode (`recipes.give`).
     pub creative: bool,
+    /// The player has operator rights (command level 2 or more).
+    pub operator: bool,
     /// The player's items as (slot, SNBT of the stack) for capability
     /// `inventory`; the game fills it only for a mod command's call.
     /// Slots: 0..=35 inventory, 100..=103 armor (feet to head), 150 offhand.

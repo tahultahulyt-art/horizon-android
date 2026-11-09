@@ -586,6 +586,7 @@ impl Game<'_> {
             known_recipes,
             placing: self.mod_recipe_screen(),
             creative: self.creative,
+            operator: self.ui.registries.permission >= 2,
             inventory: Default::default(),
         }
     }
@@ -621,8 +622,8 @@ impl Game<'_> {
         let fail = |game: &mut Self, why: String| {
             game.add_mod_chat_line(Text::literal(why).with_color(text::RED));
         };
-        if !self.creative {
-            fail(self, "Inventory kits work only in creative mode".to_owned());
+        if !self.creative && self.ui.registries.permission < 2 {
+            fail(self, "Loading a kit needs creative mode or operator rights".to_owned());
             return;
         }
         let mut inventory: Vec<Option<ItemStack>> = vec![None; 36];

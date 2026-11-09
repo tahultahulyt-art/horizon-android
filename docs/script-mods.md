@@ -75,6 +75,7 @@ end
     per non-empty slot: 0-35 inventory (0-8 hotbar), 100-103 armor feet to
     head, 150 offhand. Filled only inside `on_command`; elsewhere empty.
   - `inventory.creative()` → true in creative mode.
+  - `inventory.operator()` → true when the player has operator rights (command level 2 or more).
   - `inventory.replace(entries)` — entries in the shape `read()` returns;
     every slot not listed becomes empty. Creative mode only; an unreadable
     item changes nothing. A server still has the last word: it takes the

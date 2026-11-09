@@ -412,6 +412,12 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
         )
         .map_err(toml_err)?;
         inv.set(
+            "operator",
+            lua.create_function(|lua, ()| Ok(with_data(lua, |d| d.snapshot.operator)))
+                .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        inv.set(
             "replace",
             lua.create_function(|lua, entries: Table| {
                 let mut slots: Vec<(u8, String)> = Vec::new();
@@ -438,9 +444,9 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
                     }
                 }
                 with_data(lua, |d| {
-                    if !d.snapshot.creative {
+                    if !d.snapshot.creative && !d.snapshot.operator {
                         return Err(mlua::Error::external(
-                            "only in creative mode",
+                            "only in creative mode or as an operator",
                         ));
                     }
                     d.out.retain(|o| !matches!(o, Output::SetInventory { .. }));
