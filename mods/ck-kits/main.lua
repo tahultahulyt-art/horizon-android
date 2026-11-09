@@ -1,6 +1,6 @@
 -- CK Kits: /ck save <name>, /ck load <name>, /ck list, /ck delete <name>.
--- Kits are global (same in every world and on your own server) and work
--- only in creative mode. A kit holds the whole inventory: hotbar, main
+-- Kits are global (same in every world and on your own server). Save, list
+-- and delete work in any game mode; load works only in creative mode. A kit holds the whole inventory: hotbar, main
 -- slots, armor and offhand, with enchants and names.
 
 MOD = { commands = { "ck" } }
@@ -52,8 +52,8 @@ function on_command(cmd, args)
   if sub ~= "save" and sub ~= "load" and sub ~= "delete" then
     error(USAGE, 0)
   end
-  if not inventory.creative() then
-    error("Kits work only in creative mode", 0)
+  if sub == "load" and not inventory.creative() then
+    error("Loading a kit works only in creative mode", 0)
   end
   local name = clean(rest)
   if not name then
@@ -79,7 +79,7 @@ function on_command(cmd, args)
 
   if sub == "load" then
     local data = storage.get("kit." .. name)
-    if not data then error("No kit named '" .. name .. "'. /ck list") end
+    if not data then error("No kit named '" .. name .. "'. /ck list", 0) end
     local entries = {}
     for line in string.gmatch(data, "[^\n]+") do
       local slot, item = string.match(line, "^(%d+) (.+)$")
@@ -92,7 +92,7 @@ function on_command(cmd, args)
   end
 
   -- delete
-  if not has(list, name) then error("No kit named '" .. name .. "'") end
+  if not has(list, name) then error("No kit named '" .. name .. "'", 0) end
   storage.delete("kit." .. name)
   local kept = {}
   for _, n in ipairs(list) do

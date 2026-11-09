@@ -171,9 +171,16 @@ fn ck_kits_save_load_roundtrip_in_creative() {
 }
 
 #[test]
-fn ck_kits_refuse_outside_creative() {
+fn ck_kits_save_works_anywhere_load_needs_creative() {
     let mut game = ck_game();
+    game.inventory = vec![(0, "{id:\"minecraft:diamond_sword\",count:1}".into())];
     assert!(game.command("ck save a"));
+    assert_eq!(feedback(&mut game), ("Saved kit 'a' (1 stacks)".into(), false));
+    assert!(game.command("ck list"));
+    assert!(!feedback(&mut game).1);
+    assert!(game.command("ck load a"));
     let (text, error) = feedback(&mut game);
     assert!(error && text.contains("creative"), "{text}");
+    assert!(game.command("ck delete a"));
+    assert!(!feedback(&mut game).1);
 }
