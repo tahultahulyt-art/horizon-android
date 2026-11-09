@@ -106,13 +106,16 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
 - About to land a fall that would hurt (fall distance plus height to the
   ground over the safe 3 blocks), with a water bucket in the hotbar and solid
   ground within 8 blocks below with a free cell on top: the game selects the
-  bucket for a tick, clicks the ground's top face with it
-  (`MultiPlayerGameMode.useItemOn`), swings and selects the previous slot
-  back (`game/remote.rs`, `auto_mlg_prepare`/`auto_mlg_fire`).
-- Single player only: it does nothing on a remote server. A placed water is
-  left alone for a second, so an empty bucket coming back doesn't scoop it up
-  again mid-fall.
-- Off: no clicks, no slot change, vanilla falls.
+  bucket for a tick, uses it looking straight down
+  (`MultiPlayerGameMode.useItem`; BucketItem has no useOn, so a block click
+  never empties one, and the server's own ray trace has to find the ground),
+  swings and selects the previous slot back (`game/remote.rs`,
+  `auto_mlg_prepare`/`auto_mlg_fire`).
+- The setting cycles Off / Single player / Everywhere. Everywhere also runs
+  on remote servers: it sends a use packet with a straight-down look, which
+  public servers' anti-cheats can flag. A placed water is left alone for a
+  second, so an empty bucket coming back doesn't scoop it up again mid-fall.
+- Off: no packets, no slot change, vanilla falls.
 
 ### Auto-reconnect (`autoReconnect`, default off)
 - On the "Connection lost" screen after a multiplayer connection drops, a

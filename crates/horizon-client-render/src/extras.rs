@@ -102,9 +102,9 @@ pub struct Extras {
     /// The animated cape (`crate::animated_cape`): 0 is off, else 1-based
     /// into `animated_cape::CHOICES`.
     pub animated_cape: u8,
-    /// A water bucket in the hotbar placed below a fall that would hurt,
-    /// single player only (`docs/extras.md`).
-    pub auto_mlg: bool,
+    /// A water bucket in the hotbar placed below a fall that would hurt:
+    /// 0 is off, 1 single player only, 2 servers too (`docs/extras.md`).
+    pub auto_mlg: u8,
     /// Mouse Tweaks-style drags in the inventory and storage containers.
     pub mouse_tweaks: bool,
     /// With them, the wheel over a slot moves its items one at a time.
@@ -147,7 +147,7 @@ impl Default for Extras {
             auto_reconnect: false,
             own_name_tag: false,
             animated_cape: 0,
-            auto_mlg: false,
+            auto_mlg: 0,
             mouse_tweaks: false,
             mouse_tweaks_wheel: true,
             sort: false,
@@ -228,7 +228,14 @@ impl Extras {
                         e.animated_cape = v.min(crate::animated_cape::CHOICES.len() as u8);
                     }
                 }
-                "autoMlg" => e.auto_mlg = flag(e.auto_mlg),
+                "autoMlg" => {
+                    // `true` is build 24's on: single player.
+                    e.auto_mlg = match value {
+                        "2" => 2,
+                        "1" | "true" => 1,
+                        _ => 0,
+                    };
+                }
                 "mouseTweaks" => e.mouse_tweaks = flag(e.mouse_tweaks),
                 "mouseTweaksWheel" => e.mouse_tweaks_wheel = flag(e.mouse_tweaks_wheel),
                 "sort" => e.sort = flag(e.sort),
@@ -271,7 +278,7 @@ impl Extras {
             bool_text(self.auto_reconnect),
             bool_text(self.own_name_tag),
             self.animated_cape,
-            bool_text(self.auto_mlg),
+            self.auto_mlg,
             bool_text(self.mouse_tweaks),
             bool_text(self.mouse_tweaks_wheel),
             bool_text(self.sort),
@@ -430,7 +437,6 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
         Ok(SortKey),
         Err("Multiplayer"),
         Ok(AutoReconnect),
-        Err("Single player"),
         Ok(AutoMlg),
     ]
 }
@@ -481,7 +487,7 @@ impl Item {
                 "Rejoins a server after a lost connection or a restart, never after a kick or ban."
             }
             Item::AutoMlg => {
-                "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time. Single player only, never on servers."
+                "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time. Everywhere also works on servers; public servers can ban for it."
             }
             Item::MouseTweaks => {
                 "Right-drag places one per slot, left-drag gathers the held item, Shift + left-drag moves every slot."
@@ -524,7 +530,7 @@ impl Item {
             Item::DynamicLights => e.dynamic_lights,
             Item::OwnNameTag => e.own_name_tag,
             Item::AutoReconnect => e.auto_reconnect,
-            Item::AutoMlg => e.auto_mlg,
+            Item::AutoMlg => e.auto_mlg != 0,
             Item::MouseTweaks => e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel,
             Item::Sort => e.sort,
@@ -539,6 +545,7 @@ impl Item {
         match self {
             Item::SortKey => crate::keybinds::display_name(&e.sort_key).plain(),
             Item::AnimatedCape => crate::animated_cape::label(e.animated_cape).into(),
+            Item::AutoMlg => ["Off", "Single player", "Everywhere"][e.auto_mlg.min(2) as usize].into(),
             other => match other.switch(e) {
                 Some(true) => "On".into(),
                 _ => "Off".into(),
@@ -556,7 +563,7 @@ impl Item {
                 e.animated_cape = (e.animated_cape + 1) % (crate::animated_cape::CHOICES.len() as u8 + 1)
             }
             Item::AutoReconnect => e.auto_reconnect = !e.auto_reconnect,
-            Item::AutoMlg => e.auto_mlg = !e.auto_mlg,
+            Item::AutoMlg => e.auto_mlg = (e.auto_mlg + 1) % 3,
             Item::MouseTweaks => e.mouse_tweaks = !e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel = !e.mouse_tweaks_wheel,
             Item::Sort => e.sort = !e.sort,
@@ -585,7 +592,7 @@ mod tests {
         assert!(!d.fullbright && !d.dynamic_lights);
         assert!(!d.zoom && !d.fps && !d.keystrokes && !d.minimap && !d.auto_reconnect);
         assert!(!d.mouse_tweaks && !d.sort && !d.own_name_tag);
-        assert!(!d.auto_mlg && d.animated_cape == 0);
+        assert!(d.auto_mlg == 0 && d.animated_cape == 0);
         assert!(d.discord_presence);
         assert_eq!(Extras::parse(""), d);
         assert_eq!(Extras::parse(&d.serialize()), d);
@@ -617,7 +624,7 @@ mod tests {
         e.sort_key = "key.keyboard.r".into();
         e.discord_presence = false;
         e.animated_cape = 2;
-        e.auto_mlg = true;
+        e.auto_mlg = 2;
         assert_eq!(Extras::parse(&e.serialize()), e);
     }
 

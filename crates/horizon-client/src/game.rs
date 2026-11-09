@@ -2099,11 +2099,10 @@ struct WorldIcon {
 }
 
 /// The extras "Auto water bucket" state (`game/remote.rs`'s auto_mlg_*): the
-/// ground block to click with the bucket and the hotbar slot to restore
-/// after, and a retry wait in ticks.
+/// hotbar slot to restore after the bucket's tick, and a retry wait in ticks.
 #[derive(Default)]
 struct AutoMlg {
-    pending: Option<([i32; 3], usize)>,
+    pending: Option<usize>,
     cooldown: u32,
 }
 struct Game<'a> {

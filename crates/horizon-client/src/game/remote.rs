@@ -6518,17 +6518,19 @@ impl Game<'_> {
         }
     }
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
-    /// The Extras "Auto water bucket" switch (default off), single player
-    /// only: a fall that would hurt, landing within reach, with a water
-    /// bucket in the hotbar. Selects the bucket so this tick's
-    /// `SetCarriedItem` goes out before `auto_mlg_fire`'s click.
+    /// The Extras "Auto water bucket" switch (default off; 1 is single
+    /// player only, 2 servers too): a fall that would hurt, landing within
+    /// reach, with a water bucket in the hotbar. Selects the bucket so this
+    /// tick's `SetCarriedItem` goes out before `auto_mlg_fire`'s use.
     fn auto_mlg_prepare(&mut self) {
         self.auto_mlg.pending = None;
         if self.auto_mlg.cooldown > 0 {
             self.auto_mlg.cooldown -= 1;
             return;
         }
-        if !self.settings.extras.auto_mlg || self.integrated.is_none() || self.spectator() {
+        // 1 is single player only; 2 runs on servers too.
+        let mode = self.settings.extras.auto_mlg;
+        if mode == 0 || (mode == 1 && self.integrated.is_none()) || self.spectator() {
             return;
         }
         let Some(p) = self.player.as_ref() else {
@@ -6563,8 +6565,9 @@ impl Game<'_> {
             return;
         }
         // Fire when the next move lands (or the tick after): the water needs
-        // the round trip before the landing tick.
-        if remaining > -p.velocity.y * 1.5 {
+        // the round trip before the landing tick. Two ticks of slack cover a
+        // remote server's share of it.
+        if remaining > -p.velocity.y * 2.0 {
             return;
         }
         let bucket = (0..9).find(|&slot| {
@@ -6576,23 +6579,22 @@ impl Game<'_> {
         };
         let restore = self.selected;
         self.selected = bucket;
-        self.auto_mlg.pending = Some(([x, ground, z], restore));
+        self.auto_mlg.pending = Some(restore);
     }
-    /// `auto_mlg_prepare`'s click: `MultiPlayerGameMode.useItemOn` with the
-    /// bucket on the ground block's top face, then the hotbar slot back.
+    /// `auto_mlg_prepare`'s use: `MultiPlayerGameMode.useItem` with the
+    /// bucket (BucketItem has no useOn: a UseItemOn click never empties
+    /// one), looking straight down so the server's own ray trace finds the
+    /// ground below the fall, then the hotbar slot back.
     fn auto_mlg_fire(&mut self) {
-        let Some((pos, restore)) = self.auto_mlg.pending.take() else {
+        let Some(restore) = self.auto_mlg.pending.take() else {
             return;
         };
         let sequence = self.next_sequence();
-        self.send(S::UseItemOn(play::UseItemOn {
+        self.send(S::UseItem(play::UseItem {
             hand: hand_id(Hand::Main),
-            pos,
-            face: 1,
-            cursor: [0.5, 1.0, 0.5],
-            inside: false,
-            world_border: false,
             sequence,
+            yaw: self.yaw,
+            pitch: 90.0,
         }));
         self.with_hand(Hand::Main, Game::swing_arm);
         self.selected = restore;
