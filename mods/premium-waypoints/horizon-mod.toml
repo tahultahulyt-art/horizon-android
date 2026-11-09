@@ -1,0 +1,8 @@
+id = "premium_waypoints"
+name = "Premium Waypoints"
+version = "1.0.0"
+description = "Named colored world markers, distance labels and optional beams. /wp help"
+authors = ["Rahul_the_og"]
+api = "0.1"
+side = "client"
+capabilities = ["game-read", "hud", "storage"]

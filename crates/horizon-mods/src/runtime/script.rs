@@ -130,6 +130,7 @@ impl LuaRun {
             panel: None,
             ui: Default::default(),
             shapes: Vec::new(),
+            waypoints: Vec::new(),
             corner: None,
             zoom: None,
             minimap: None,
@@ -299,6 +300,11 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
         )
         .map_err(toml_err)?;
         game.set(
+            "world_id",
+            lua.create_function(|lua, ()| Ok(with_data(lua, |d| d.snapshot.world_id.clone())))
+                .map_err(toml_err)?,
+        ).map_err(toml_err)?;
+        game.set(
             "clock",
             lua.create_function(|lua, ()| {
                 let clock = with_data(lua, |d| d.snapshot.clock);
@@ -357,6 +363,31 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
             .map_err(toml_err)?,
         )
         .map_err(toml_err)?;
+        hud.set(
+            "waypoints",
+            lua.create_function(|lua, points: Table| {
+                let mut out = Vec::new();
+                for point in points.sequence_values::<Table>() {
+                    let p = point?;
+                    if out.len() >= 32 { return Err(mlua::Error::external("At most 32 visible waypoints")); }
+                    let position = [p.get::<f64>("x")?, p.get::<f64>("y")?, p.get::<f64>("z")?];
+                    if position.iter().any(|v| !v.is_finite() || v.abs() > 30_000_000.0) {
+                        return Err(mlua::Error::external("Invalid waypoint coordinates"));
+                    }
+                    let world_id: String = p.get("world_id")?;
+                    let dimension: String = p.get("dimension")?;
+                    let name: String = p.get("name")?;
+                    if world_id.len() > 128 || dimension.len() > 128 || name.chars().count() > 32 {
+                        return Err(mlua::Error::external("Waypoint name or world identity too long"));
+                    }
+                    out.push(super::Waypoint { name, world_id, dimension, position,
+                        color: p.get::<Option<u32>>("color")?.unwrap_or(0x55FFFF) & 0xFFFFFF,
+                        beam: p.get::<Option<bool>>("beam")?.unwrap_or(true) });
+                }
+                with_data(lua, |d| d.waypoints = out);
+                Ok(())
+            }).map_err(toml_err)?,
+        ).map_err(toml_err)?;
         hud.set(
             "clear",
             lua.create_function(|lua, ()| {

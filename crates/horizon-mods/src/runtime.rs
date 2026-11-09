@@ -136,6 +136,8 @@ const STORAGE_WRITE_BUDGET: u64 = 1 << 20;
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub player: Option<Player>,
+    /// Opaque stable local-world or remote-server identity, independent of dimension.
+    pub world_id: Option<String>,
     pub clock: Option<Clock>,
     /// The screen in GUI pixels (capability `render`'s `gui-size`).
     pub gui_size: (f32, f32),
@@ -180,6 +182,17 @@ pub struct Snapshot {
 pub struct Recipes {
     pub items: Vec<RecipeItem>,
     pub recipes: Vec<Recipe>,
+}
+
+/// A client-only marker retained by a Lua mod with capability `hud`.
+#[derive(Clone, Debug)]
+pub struct Waypoint {
+    pub name: String,
+    pub world_id: String,
+    pub dimension: String,
+    pub position: [f64; 3],
+    pub color: u32,
+    pub beam: bool,
 }
 
 /// Which mods a game starts: the window's game the client mods, the game
@@ -597,6 +610,8 @@ struct State {
     ui: UiState,
     /// Capability `render`'s HUD shapes, drawn until replaced.
     shapes: Vec<Shape>,
+    /// Retained client-only location markers. No gameplay or server mutation.
+    waypoints: Vec<Waypoint>,
     /// Capability `render`'s corner panel.
     corner: Option<CornerPanel>,
     /// Capability `render`'s zoom, when the mod zooms.
@@ -807,6 +822,7 @@ impl Mods {
             panel: None,
             ui: UiState::default(),
             shapes: Vec::new(),
+            waypoints: Vec::new(),
             corner: None,
             zoom: None,
             minimap: None,
@@ -1199,6 +1215,17 @@ impl Mods {
             .iter()
             .filter_map(|e| e.run.as_ref())
             .filter_map(|r| r.data().panel.clone())
+    }
+    /// Visit retained location markers without allocating or cloning per frame.
+    /// Empty when no waypoint mod is installed/enabled.
+    pub fn has_waypoints(&self) -> bool {
+        self.entries.iter().filter_map(|e| e.run.as_ref()).any(|r| !r.data().waypoints.is_empty())
+    }
+    pub fn visit_waypoints(&self, mut visit: impl FnMut(&Waypoint)) {
+        for run in self.entries.iter().filter_map(|e| e.run.as_ref()) {
+            let data = run.data();
+            for point in &data.waypoints { visit(point); }
+        }
     }
     /// The running mods' corner panels (capability `render`), in load order.
     pub fn corner_panels(&self) -> impl Iterator<Item = &CornerPanel> {

@@ -188,3 +188,57 @@ fn ck_kits_save_works_anywhere_load_needs_creative() {
     assert!(game.command("ck delete a"));
     assert!(!feedback(&mut game).1);
 }
+
+fn waypoint_mod() -> std::path::PathBuf {
+    let bytes = manifest::write_script(
+        include_str!("../../../mods/premium-waypoints/horizon-mod.toml"),
+        include_str!("../../../mods/premium-waypoints/main.lua"),
+    ).unwrap();
+    let path = std::env::temp_dir().join(format!("waypoints-{}.hmod", std::process::id()));
+    std::fs::write(&path, bytes).unwrap(); path
+}
+
+#[test]
+fn waypoints_commands_persist_and_separate_worlds_and_dimensions() {
+    let path = waypoint_mod();
+    let mut game = TestGame::load(&path).unwrap();
+    assert!(game.command("wp add home pink"));
+    assert_eq!(game.waypoints().len(), 1, "{:?}", game.drain());
+    assert_eq!(game.waypoints()[0].color, 0xFF77BB);
+    assert!(game.command("wp add mine 10 70 20 cyan"));
+    assert_eq!(game.waypoints().len(), 2);
+    game.reload().unwrap(); game.tick(1);
+    assert_eq!(game.waypoints().len(), 2);
+    game.world_id = Some("server-two".into()); game.tick(1);
+    assert!(game.waypoints().is_empty());
+    assert!(game.command("wp add home green"));
+    assert_eq!(game.waypoints().len(), 1);
+    game.world_id = Some("world-test".into()); game.tick(1);
+    assert_eq!(game.waypoints().len(), 2);
+    game.player.as_mut().unwrap().dimension = "minecraft:the_nether".into(); game.tick(1);
+    assert!(game.waypoints().is_empty());
+    game.player.as_mut().unwrap().dimension = "minecraft:overworld".into(); game.tick(1);
+    assert_eq!(game.waypoints().len(), 2);
+    for command in ["wp hide home", "wp show home", "wp edit home color orange", "wp edit home coords 1 2 3", "wp edit home rename base", "wp edit base beam off", "wp beam off", "wp list"] {
+        assert!(game.command(command));
+        let out=game.drain();
+        assert!(!out.iter().any(|o| matches!(o, Output::Feedback { error: true, .. })), "{command}: {out:?}");
+    }
+    let p=game.waypoints();
+    assert_eq!(p[0].name, "base");assert_eq!(p[0].position,[1.0,2.0,3.0]);assert!(!p[0].beam);
+    assert!(game.command("wp remove base")); assert_eq!(game.waypoints().len(),1);
+    game.player=None;game.world_id=None;game.tick(1);assert!(game.waypoints().is_empty());
+}
+
+#[test]
+fn waypoints_reject_duplicates_bad_coordinates_and_over_limit() {
+    let path=waypoint_mod();let mut game=TestGame::load(&path).unwrap();
+    for n in 0..32 { game.command(&format!("wp add p{n}")); }
+    assert_eq!(game.waypoints().len(),32);
+    for cmd in ["wp add more", "wp add p0", "wp edit p0 coords nan 0 0", "wp edit p0 color nope", "wp edit p0 rename p1"] {
+        game.drain(); assert!(game.command(cmd));
+        assert!(game.drain().iter().any(|o| matches!(o,Output::Feedback {error:true,..})), "{cmd}");
+        assert_eq!(game.waypoints().len(),32);
+    }
+    assert_eq!(game.status(),&Status::Running);
+}

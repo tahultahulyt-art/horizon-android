@@ -54,6 +54,8 @@ end
 - `game` (capability `game-read`):
   - `game.player()` → `{x, y, z, yaw, pitch, health, food, dimension}` or
     nil on the title screen
+  - `game.world_id()` -> opaque stable local-world/server identity, or nil outside a world.
+    Dimensions share the same identity. A renamed/moved save or different server address is a new identity.
   - `game.clock()` → `{game_time, day_time}` or nil
   - `game.cps()` → attack and use clicks in the last second (two numbers)
 - `hud` (capability `hud`): one text panel per mod, drawn by the game
@@ -62,6 +64,12 @@ end
     `"bottom-left"` or `"bottom-right"`; up to 16 lines, each a string or
     `{text = "...", color = 0xRRGGBB}`
   - `hud.clear()`
+  - `hud.waypoints(points)` -> retained client-only world markers (up to 32).
+    Each point is `{name, world_id, dimension, x, y, z, color=0xRRGGBB, beam=true}`.
+    Replaces the previous list; `{}` clears it. Markers are filtered by current world and dimension.
+    Labels show name/distance in front of the camera, respecting F1. Beams are world-space,
+    terrain-occluded, 256 blocks tall, culled beyond 1024 blocks. No blocks/entities are spawned.
+    The mod does not need `on_frame`; the engine projects labels each frame.
 - `chat` (capability `chat`): `chat.show(text)`, a line after the mod's
   name that only the local player sees (8 per call).
 - `storage` (capability `storage`): `storage.get(key)` → string or nil,

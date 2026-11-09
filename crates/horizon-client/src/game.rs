@@ -188,6 +188,7 @@ mod mod_input;
 #[cfg(feature = "mods")]
 mod mod_panel;
 mod mod_render;
+mod mod_waypoints;
 mod mods;
 mod mount_menu;
 mod mounts;
@@ -10733,6 +10734,7 @@ impl Game<'_> {
         // Beams: `gbuffers_beaconbeam`, not a block entity's program (5.4 has no stage for them).
         self.mark_stage(out.len(), "NONE");
         self.beacon_geometry(camera, alpha, &mut out);
+        self.waypoint_beams(camera, alpha, &mut out);
         self.mark_entity(out.len(), "minecraft:fishing_bobber");
         self.fishing_geometry(camera, alpha, &mut out);
         self.mark_entity(out.len(), "minecraft:leash_knot");
@@ -14982,6 +14984,16 @@ impl Game<'_> {
         } else {
             self.spinning_matrix(camera_alpha as f32)
         };
+        // No matrices, marker geometry or labels when no waypoint mod is active.
+        // Use the exact camera/bob/FOV of this frame, not last tick's view.
+        #[cfg(feature = "mods")]
+        if self.mods.mods.has_waypoints() {
+            let aspect = size[0] as f32 / size[1].max(1) as f32;
+            let projection = glam::Mat4::from_cols_array(&horizon_client::camera::perspective(
+                fov_degrees, aspect, 1.0, 0.05, 4096.0, false));
+            let matrix = projection * bob * spin * horizon_client::camera::view_matrix(yaw, pitch);
+            self.draw_waypoint_labels(&mut hud, camera, matrix);
+        }
         let requested_post_effects = self.requested_post_effects();
         let terrain_distance = self.terrain_distance();
         let distance = (terrain_distance * 16) as f32;

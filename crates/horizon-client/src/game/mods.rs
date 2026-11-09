@@ -534,6 +534,17 @@ impl Game<'_> {
         };
         self.mod_snapshot_with(players)
     }
+    /// Opaque identity, stable across reconnect/restart and dimension changes.
+    /// This never exposes a filesystem path or server address to scripts.
+    pub(super) fn mod_world_id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let source = if self.remote.is_some() && self.integrated.is_none() {
+            format!("server:{}", self.remote.as_ref().map(|r| r.session.address.as_str()).unwrap_or("unknown").trim().to_ascii_lowercase())
+        } else {
+            format!("world:{}", self.world_root.to_string_lossy())
+        };
+        format!("{:x}", Sha256::digest(source.as_bytes()))
+    }
     /// What mods read, with these players on the server.
     pub(super) fn mod_snapshot_with(&mut self, players: Vec<ServerPlayer>) -> Snapshot {
         let player = self.player.as_ref().map(|p| Player {
@@ -572,6 +583,7 @@ impl Game<'_> {
         }
         let (recipes, known_recipes) = self.mod_recipes();
         Snapshot {
+            world_id: player.as_ref().map(|_| self.mod_world_id()),
             player,
             clock,
             gui_size: self.gui_size(),

@@ -23,6 +23,7 @@ pub struct TestGame {
     hmod: PathBuf,
     /// What the mod reads with `game-read`; ticks move the clock as the game does.
     pub player: Option<Player>,
+    pub world_id: Option<String>,
     pub clock: Option<Clock>,
     /// The players on the server, for a server mod, in join order.
     pub players: Vec<ServerPlayer>,
@@ -117,6 +118,7 @@ impl TestGame {
             hmod: copy.clone(),
             dir,
             player: Some(default_player()),
+            world_id: Some("world-test".into()),
             clock: Some(Clock {
                 game_time: 0,
                 day_time: 0,
@@ -153,6 +155,7 @@ impl TestGame {
     fn snapshot(&mut self) {
         self.mods.set_snapshot(Snapshot {
             player: self.player.clone(),
+            world_id: self.world_id.clone(),
             clock: self.clock,
             players: self.players.clone(),
             // The GUI of a 1280 x 720 window at scale 3, as the trial run's.
@@ -273,6 +276,11 @@ impl TestGame {
     }
     pub fn panel(&self) -> Option<Panel> {
         self.mods.panels().next()
+    }
+    pub fn waypoints(&self) -> Vec<crate::Waypoint> {
+        let mut out = Vec::new();
+        self.mods.visit_waypoints(|p| out.push(p.clone()));
+        out
     }
     pub fn status(&self) -> &Status {
         &self.mods.entries()[0].status
