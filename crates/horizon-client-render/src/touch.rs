@@ -364,6 +364,12 @@ impl TouchControls {
             let p = self.placement(control);
             let size = p.size * h;
             let (x, y) = (p.center[0] * w - size / 2.0, p.center[1] * h - size / 2.0);
+            let boxed = [
+                p.center[0] * w - size * p.wide / 2.0,
+                y,
+                size * p.wide,
+                size,
+            ];
             let opacity = self.settings.draw_opacity(
                 p.opacity,
                 self.editor.is_some(),
@@ -403,57 +409,7 @@ impl TouchControls {
                     continue;
                 }
                 if self.settings.mode == Mode::Dpad {
-                    let cell = size / 3.0;
-                    for (dx, dy, name) in [
-                        (0, -1, "up"),
-                        (-1, 0, "left"),
-                        (1, 0, "right"),
-                        (0, 1, "down"),
-                    ] {
-                        let pressed = match (dx, dy) {
-                            (0, -1) => state.left[1] > 0.2,
-                            (0, 1) => state.left[1] < -0.2,
-                            (-1, 0) => state.left[0] < -0.2,
-                            _ => state.left[0] > 0.2,
-                        };
-                        fitted_sprite(
-                            b,
-                            a,
-                            &format!("controls/{name}{}", if pressed { "_pressed" } else { "" }),
-                            [
-                                x + cell * (dx + 1) as f32,
-                                y + cell * (dy + 1) as f32,
-                                cell,
-                                cell,
-                            ],
-                            color,
-                        );
-                    }
-                    // Vanilla shows the diagonal keys while their adjoining arrow is held.
-                    if state.left[1].abs() > 0.2 {
-                        let (dy, prefix) = if state.left[1] > 0.0 {
-                            (0, "up")
-                        } else {
-                            (2, "down")
-                        };
-                        for (dx, suffix) in [(0, "left"), (2, "right")] {
-                            let pressed = if dx == 0 {
-                                state.left[0] < -0.2
-                            } else {
-                                state.left[0] > 0.2
-                            };
-                            sprite(
-                                b,
-                                a,
-                                &format!(
-                                    "controls/{prefix}_{suffix}{}",
-                                    if pressed { "_pressed" } else { "" }
-                                ),
-                                [x + cell * dx as f32, y + cell * dy as f32, cell, cell],
-                                color,
-                            );
-                        }
-                    }
+                    flat_dpad(b, a, [x, y, size, size], state.left, color);
                 } else {
                     sprite(b, a, "ui/joystick_frame", [x, y, size, size], color);
                     sprite(
@@ -475,6 +431,34 @@ impl TouchControls {
                         .fingers
                         .values()
                         .any(|(_, point)| layout::contains(p.rect(self.aspect()), *point));
+                if let Some(label) = self.flat_label(control) {
+                    flat_box(b, a, boxed, label, pressed, color);
+                    if control == Control::Settings {
+                        let [bx, by, bw, bh] = boxed;
+                        fitted_sprite(
+                            b,
+                            a,
+                            "ui/gear",
+                            [bx + bw * 0.2, by + bh * 0.2, bw * 0.6, bh * 0.6],
+                            color,
+                        );
+                    }
+                    if let Some(e) = &self.editor
+                        && e.selected == Some(control)
+                    {
+                        let [bx, by, bw, bh] = boxed;
+                        let white = rgba(255, 255, 255, 255);
+                        for (p, q) in [
+                            ([bx - 1.0, by - 1.0], [bx + bw + 1.0, by - 1.0]),
+                            ([bx - 1.0, by + bh + 1.0], [bx + bw + 1.0, by + bh + 1.0]),
+                            ([bx - 1.0, by - 1.0], [bx - 1.0, by + bh + 1.0]),
+                            ([bx + bw + 1.0, by - 1.0], [bx + bw + 1.0, by + bh + 1.0]),
+                        ] {
+                            line(b, a, p, q, white);
+                        }
+                    }
+                    continue;
+                }
                 let themed = match control {
                     Control::Chat => Some("chat"),
                     Control::Pause => Some("pause"),
@@ -594,6 +578,28 @@ impl TouchControls {
                 ring(b, a, center, inner, rgba(255, 255, 255, 220));
             }
         }
+    }
+    /// Text for the flat boxed look; `None` for the joystick, which keeps its art.
+    fn flat_label(&self, control: Control) -> Option<&'static str> {
+        Some(match control {
+            Control::Move => return None,
+            Control::Sprint => "SPRINT",
+            Control::Jump if self.swimming || self.vertical_movement => "UP",
+            Control::Jump => "JUMP",
+            Control::Sneak if self.swimming || self.vertical_movement => "DOWN",
+            Control::Sneak if self.mounted => "EXIT",
+            Control::Sneak => "SNEAK",
+            Control::Attack => "PRI",
+            Control::Use => "SEC",
+            Control::Chat => "T",
+            Control::Pause => "ESC",
+            Control::Settings => "",
+            Control::Inventory => "E",
+            Control::Debug => "F3",
+            Control::Perspective => "F5",
+            Control::Offhand => "SWAP",
+            Control::Shield => "SHIELD",
+        })
     }
     pub fn shield_held(&self) -> bool {
         self.settings.shield_button
@@ -948,6 +954,74 @@ pub fn theme_button(
         control_quad(b, a, x, y, w, h, rect, color);
     }
     true
+}
+
+/// Flat dark rectangle with a centred white label (the boxed on-screen look).
+fn flat_box(
+    b: &mut HudBatch,
+    a: &HudAtlas,
+    [x, y, w, h]: [f32; 4],
+    label: &str,
+    pressed: bool,
+    color: u32,
+) {
+    let alpha = color.to_le_bytes()[3];
+    let fill = if pressed {
+        rgba(78, 78, 78, alpha)
+    } else {
+        rgba(14, 14, 14, alpha)
+    };
+    b.fill(a, x, y, w, h, fill);
+    if label.is_empty() {
+        return;
+    }
+    let width = HudBatch::text_width(a, label);
+    let start = b.vertices.len();
+    b.text(a, label, x + (w - width) / 2.0, y + (h - 8.0) / 2.0, color, false);
+    let scale = ((w - 6.0).max(1.0) / width.max(1.0)).min(h * 0.42 / 8.0);
+    b.scale_since(start, x + w / 2.0, y + h / 2.0, scale, scale);
+}
+
+/// Eight flat cells (arrows and diagonals) around an empty centre.
+fn flat_dpad(b: &mut HudBatch, a: &HudAtlas, [x, y, w, _h]: [f32; 4], left: [f32; 2], color: u32) {
+    let cell = w / 3.0;
+    let alpha = color.to_le_bytes()[3];
+    for row in 0..3 {
+        for col in 0..3 {
+            if row == 1 && col == 1 {
+                continue;
+            }
+            let dx = col as f32 - 1.0;
+            let dy = 1.0 - row as f32;
+            let held = (dx == 0.0 || left[0] * dx > 0.2) && (dy == 0.0 || left[1] * dy > 0.2);
+            let (cx0, cy0) = (x + cell * col as f32, y + cell * row as f32);
+            let fill = if held {
+                rgba(78, 78, 78, alpha)
+            } else {
+                rgba(14, 14, 14, alpha)
+            };
+            b.fill(a, cx0 + 0.5, cy0 + 0.5, cell - 1.0, cell - 1.0, fill);
+            let (mx, my) = (cx0 + cell / 2.0, cy0 + cell / 2.0);
+            let r = cell * 0.2;
+            let corners = if dx == 0.0 || dy == 0.0 {
+                let (ux, uy) = (dx, -dy);
+                let (px, py) = (-uy, ux);
+                let tip = [mx + ux * r, my + uy * r];
+                let base_a = [mx - ux * r + px * r, my - uy * r + py * r];
+                let base_b = [mx - ux * r - px * r, my - uy * r - py * r];
+                [tip, base_a, base_b, base_b]
+            } else {
+                let corner = [mx + dx * r, my - dy * r];
+                [
+                    corner,
+                    [mx - dx * r, my - dy * r],
+                    [mx + dx * r, my + dy * r],
+                    [mx + dx * r, my + dy * r],
+                ]
+            };
+            b.fill_quad(a, corners, color);
+        }
+    }
 }
 
 /// Shared text controls: keep the raised frame at rest, visibly depress it while held.

@@ -91,6 +91,12 @@ pub struct Placement {
     pub center: [f32; 2],
     pub size: f32,
     pub opacity: f32,
+    /// Width as a multiple of the height (`size`); 1.0 is a square button.
+    #[serde(default = "one")]
+    pub wide: f32,
+}
+fn one() -> f32 {
+    1.0
 }
 impl Placement {
     pub(super) fn new(x: f32, y: f32, size: f32) -> Self {
@@ -98,10 +104,11 @@ impl Placement {
             center: [x, y],
             size,
             opacity: 0.65,
+            wide: 1.0,
         }
     }
     pub fn rect(self, aspect: f32) -> [f32; 4] {
-        let sx = self.size / aspect.max(0.1);
+        let sx = self.size * self.wide / aspect.max(0.1);
         [
             self.center[0] - sx / 2.0,
             self.center[1] - self.size / 2.0,
@@ -116,6 +123,11 @@ impl Placement {
         if !self.opacity.is_finite() {
             self.opacity = 0.65;
         }
+        self.wide = if self.wide.is_finite() {
+            self.wide.clamp(0.4, 4.0)
+        } else {
+            1.0
+        };
         self.size = self.size.clamp(0.045, 0.45);
         self.opacity = self.opacity.clamp(0.0, 1.0);
         for c in &mut self.center {
@@ -173,6 +185,9 @@ pub struct Settings {
     pub button_visibility: [u8; 14],
     pub horizontal_margin: f32,
     pub vertical_margin: f32,
+    /// 0 for profiles made before the flat boxed layout; it is applied once.
+    #[serde(default)]
+    pub layout_rev: u32,
     #[serde(deserialize_with = "deserialize_layouts")]
     pub layouts: [[Placement; 14]; 3],
 }
@@ -260,6 +275,7 @@ impl Default for Settings {
             button_visibility: [0; 14],
             horizontal_margin: 0.0,
             vertical_margin: 0.0,
+            layout_rev: 1,
             layouts,
         }
     }
@@ -272,7 +288,10 @@ impl Settings {
         let mut s: Self = std::fs::read(path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+            .unwrap_or_else(|| Self {
+                layout_rev: 0,
+                ..Self::default()
+            });
         s.sanitize();
         // Restore the original top-row spacing without moving custom layouts.
         for row in &mut s.layouts {
@@ -305,7 +324,56 @@ impl Settings {
                 sprint.center = [0.72, 0.78];
             }
         }
+        if s.layout_rev < 1 {
+            s.apply_boxed_layout();
+            s.layout_rev = 1;
+            s.sanitize();
+            let _ = s.save_to(path);
+        }
         s
+    }
+    /// Flat boxed on-screen layout, positioned in a 1598x719 reference frame.
+    fn apply_boxed_layout(&mut self) {
+        fn at(x: f32, y: f32, w: f32, h: f32) -> Placement {
+            let mut p = Placement::new((x + w / 2.0) / 1598.0, (y + h / 2.0) / 719.0, h / 719.0);
+            p.wide = w / h;
+            p.opacity = 0.85;
+            p
+        }
+        let mut base = Self::default().layouts[0];
+        let mut dpad = Placement::new(249.5 / 1598.0, 454.0 / 719.0, 0.45);
+        dpad.opacity = 0.85;
+        base[Control::Move as usize] = dpad;
+        base[Control::Sprint as usize] = at(930.0, 333.0, 150.0, 90.0);
+        base[Control::Jump as usize] = at(1470.0, 440.0, 128.0, 100.0);
+        base[Control::Sneak as usize] = at(1470.0, 545.0, 128.0, 100.0);
+        base[Control::Attack as usize] = at(1096.0, 333.0, 179.0, 240.0);
+        base[Control::Use as usize] = at(1275.0, 333.0, 180.0, 240.0);
+        base[Control::Chat as usize] = at(180.0, 67.0, 180.0, 66.0);
+        base[Control::Pause as usize] = at(0.0, 0.0, 180.0, 67.0);
+        base[Control::Settings as usize] = at(1481.0, 309.0, 100.0, 100.0);
+        base[Control::Inventory as usize] = at(1096.0, 629.0, 90.0, 90.0);
+        base[Control::Debug as usize] = at(180.0, 0.0, 180.0, 67.0);
+        base[Control::Perspective as usize] = at(360.0, 0.0, 180.0, 67.0);
+        base[Control::Offhand as usize] = at(930.0, 433.0, 150.0, 90.0);
+        base[Control::Shield as usize] = at(930.0, 533.0, 150.0, 90.0);
+        self.layouts = [base; 3];
+        self.mode = Mode::Dpad;
+        self.split_controls = true;
+        self.button_visibility[Control::Sprint as usize] = 1;
+        let keys = [
+            ("key.keyboard.tab", "TAB", at(0.0, 67.0, 180.0, 66.0)),
+            ("key.keyboard.left.control", "CTRL", at(81.0, 186.0, 180.0, 66.0)),
+            ("key.keyboard.left.alt", "ALT", at(261.0, 186.0, 180.0, 66.0)),
+        ];
+        self.custom_buttons
+            .retain(|b| !keys.iter().any(|(token, _, _)| b.key == *token));
+        for (token, label, placement) in keys {
+            let mut button = super::CustomButton::new(token.into(), 0);
+            button.label = Some(label.into());
+            button.layouts = [placement; 3];
+            self.custom_buttons.push(button);
+        }
     }
     pub fn sanitize(&mut self) {
         if self.mode == Mode::Tap && self.split_controls {

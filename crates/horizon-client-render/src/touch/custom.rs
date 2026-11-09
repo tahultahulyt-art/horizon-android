@@ -6,11 +6,15 @@ use serde::{Deserialize, Serialize};
 pub struct CustomButton {
     pub key: String,
     pub layouts: [Placement; 3],
+    /// Optional short text drawn on the button instead of the key's name.
+    #[serde(default)]
+    pub label: Option<String>,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
         Self {
             key,
+            label: None,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -26,6 +30,9 @@ impl CustomButton {
                 .is_some_and(|name| crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name))
     }
     pub fn label(&self) -> String {
+        if let Some(label) = &self.label {
+            return label.clone();
+        }
         if self.key == "key.keyboard.unknown" {
             return "Button".into();
         }
@@ -91,7 +98,7 @@ impl TouchControls {
         p.size = (p.size * self.settings.button_scale)
             .min(self.aspect())
             .min(1.0);
-        let half = [p.size / self.aspect() / 2.0, p.size / 2.0];
+        let half = [p.size * p.wide / self.aspect() / 2.0, p.size / 2.0];
         for (i, half) in half.into_iter().enumerate() {
             p.center[i] = p.center[i].clamp(half, 1.0 - half);
         }
@@ -159,10 +166,11 @@ impl TouchControls {
         for (i, button) in self.settings.custom_buttons.iter().enumerate() {
             let p = self.custom_placement(i);
             let size = p.size * b.height;
+            let width = size * p.wide;
             let rect = [
-                p.center[0] * b.width - size / 2.0,
+                p.center[0] * b.width - width / 2.0,
                 p.center[1] * b.height - size / 2.0,
-                size,
+                width,
                 size,
             ];
             let pressed = self.custom_fingers.values().any(|key| *key == button.key);
@@ -172,14 +180,13 @@ impl TouchControls {
             if opacity <= 0.0 {
                 continue;
             }
-            text_button(
+            flat_box(
                 b,
                 a,
                 rect,
                 &button.label(),
                 pressed,
                 rgba(255, 255, 255, (opacity * 255.0) as u8),
-                true,
             );
         }
     }

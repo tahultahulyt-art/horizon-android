@@ -137,8 +137,9 @@ impl TouchControls {
                     let size = (place.size * self.settings.button_scale)
                         .min(aspect)
                         .min(1.0);
+                    let half = size * place.wide / aspect / 2.0;
                     place.center = [
-                        center[0].clamp(size / aspect / 2.0, 1.0 - size / aspect / 2.0),
+                        center[0].clamp(half, 1.0 - half),
                         center[1].clamp(size / 2.0, 1.0 - size / 2.0),
                     ];
                 }
@@ -463,8 +464,9 @@ impl TouchControls {
                         center[0] = 1.0 - center[0];
                     }
                     let size = (place.size * scale).min(aspect).min(1.0);
+                    let half = size * place.wide / aspect / 2.0;
                     place.center = [
-                        center[0].clamp(size / aspect / 2.0, 1.0 - size / aspect / 2.0),
+                        center[0].clamp(half, 1.0 - half),
                         center[1].clamp(size / 2.0, 1.0 - size / 2.0),
                     ];
                 }
