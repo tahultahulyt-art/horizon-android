@@ -166,6 +166,10 @@ pub struct Snapshot {
     pub placing: bool,
     /// The player is in creative mode (`recipes.give`).
     pub creative: bool,
+    /// The player's items as (slot, SNBT of the stack) for capability
+    /// `inventory`; the game fills it only for a mod command's call.
+    /// Slots: 0..=35 inventory, 100..=103 armor (feet to head), 150 offhand.
+    pub inventory: Arc<[(u8, String)]>,
 }
 
 /// Capability `recipes`'s tables: `items` in the registry's order, which
@@ -246,6 +250,9 @@ pub enum Output {
         count: u32,
         components: String,
     },
+    /// `inventory.replace`: the whole inventory for a creative player, as
+    /// (slot, SNBT of the stack); slots not listed become empty.
+    SetInventory { slots: Vec<(u8, String)> },
 }
 
 /// The game's world as capability `world` reads it during a call: the

@@ -1,0 +1,8 @@
+id = "ck_kits"
+name = "CK Kits"
+version = "1.0.0"
+description = "/ck save <name> saves your inventory as a kit. /ck load <name> puts it back. Creative mode only."
+authors = ["Rahul_the_og"]
+api = "0.1"
+side = "client"
+capabilities = ["chat", "storage", "inventory"]

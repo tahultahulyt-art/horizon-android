@@ -586,7 +586,71 @@ impl Game<'_> {
             known_recipes,
             placing: self.mod_recipe_screen(),
             creative: self.creative,
+            inventory: Default::default(),
         }
+    }
+    /// The player's items for capability `inventory`, each as the SNBT of
+    /// its stack: slots 0..=35, armor 100 (feet) to 103 (head), offhand 150.
+    /// Made only for a mod command's call, never per tick.
+    fn mod_inventory(&self) -> std::sync::Arc<[(u8, String)]> {
+        use horizon_client::save::item_to_nbt;
+        let one = |slot: u8, stack: &ItemStack| {
+            (slot, horizon_world::snbt_text::to_snbt(&item_to_nbt(stack)))
+        };
+        let mut out = Vec::new();
+        for (i, s) in self.inventory.iter().enumerate().take(36) {
+            if let Some(stack) = s {
+                out.push(one(i as u8, stack));
+            }
+        }
+        // `armor` is head, chest, legs, feet: slots 103 down to 100.
+        for (i, s) in self.armor.iter().enumerate() {
+            if let Some(stack) = s {
+                out.push(one(103 - i as u8, stack));
+            }
+        }
+        if let Some(stack) = &self.offhand {
+            out.push(one(150, stack));
+        }
+        out.into()
+    }
+    /// `inventory.replace`: a creative player's whole inventory becomes
+    /// these stacks. All or nothing: one bad stack changes nothing.
+    fn mod_set_inventory(&mut self, slots: &[(u8, String)]) {
+        use horizon_client::save::item_from_nbt;
+        let fail = |game: &mut Self, why: String| {
+            game.add_mod_chat_line(Text::literal(why).with_color(text::RED));
+        };
+        if !self.creative {
+            fail(self, "Inventory kits work only in creative mode".to_owned());
+            return;
+        }
+        let mut inventory: Vec<Option<ItemStack>> = vec![None; 36];
+        let mut armor: [Option<ItemStack>; 4] = [None, None, None, None];
+        let mut offhand = None;
+        for (slot, snbt) in slots {
+            let parsed = horizon_world::nbt::parse_snbt(snbt)
+                .ok()
+                .and_then(|(tag, _)| item_from_nbt(&tag));
+            let Some(mut stack) = parsed else {
+                fail(self, format!("Kit item in slot {slot} could not be read"));
+                return;
+            };
+            let Some(max) = self.items().get(&*stack.item).map(|i| i.max_stack) else {
+                fail(self, format!("Kit item {} is not in this game version", stack.item));
+                return;
+            };
+            stack.count = stack.count.clamp(1, max.max(1));
+            match *slot {
+                0..=35 => inventory[usize::from(*slot)] = Some(stack),
+                100..=103 => armor[usize::from(103 - *slot)] = Some(stack),
+                150 => offhand = Some(stack),
+                _ => {}
+            }
+        }
+        self.inventory = inventory;
+        self.armor = armor;
+        self.offhand = offhand;
     }
     /// The first block along the player's view within
     /// [`horizon_mods::RAYCAST_MAX`] and its distance from the eye
@@ -750,7 +814,8 @@ impl Game<'_> {
             return false;
         }
         // The command may follow a teleport in the same tick.
-        let snapshot = self.mod_snapshot();
+        let mut snapshot = self.mod_snapshot();
+        snapshot.inventory = self.mod_inventory();
         self.mods.mods.set_snapshot(snapshot);
         if !self.mods.mods.command(command) {
             return false;
@@ -832,6 +897,10 @@ impl Game<'_> {
                     components,
                 } => {
                     self.mod_give(&item, count, &components);
+                    continue;
+                }
+                Output::SetInventory { slots } => {
+                    self.mod_set_inventory(&slots);
                     continue;
                 }
                 Output::CloseScreen { owner } => {

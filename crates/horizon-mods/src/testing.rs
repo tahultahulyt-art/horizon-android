@@ -33,6 +33,9 @@ pub struct TestGame {
     /// changed; every other block, and the other dimensions, are air. Every
     /// biome is the dimension's plainest: plains, nether wastes, the end.
     pub world: std::collections::BTreeMap<(i32, i32, i32), String>,
+    /// Capability `inventory`: creative mode, and the player's items.
+    pub creative: bool,
+    pub inventory: Vec<(u8, String)>,
 }
 
 /// The world a script's mod reads: [`TestGame::world`], copied for a step.
@@ -120,6 +123,8 @@ impl TestGame {
             names: Vec::new(),
             tick: 0,
             world: Default::default(),
+            creative: false,
+            inventory: Vec::new(),
         };
         copy_mod(hmod, &copy)?;
         game.start()?;
@@ -149,6 +154,8 @@ impl TestGame {
             players: self.players.clone(),
             // The GUI of a 1280 x 720 window at scale 3, as the trial run's.
             gui_size: (427.0, 240.0),
+            creative: self.creative,
+            inventory: self.inventory.clone().into(),
             ..Snapshot::default()
         });
     }

@@ -123,3 +123,57 @@ fn script_mod_may_not_use_undeclared_surfaces() {
     let err = TestGame::load(&path).err().expect("command is not a script capability");
     assert!(err.contains("command"), "the refused capability is named: {err}");
 }
+
+const CK_MANIFEST: &str = include_str!("../../../mods/ck-kits/horizon-mod.toml");
+const CK_LUA: &str = include_str!("../../../mods/ck-kits/main.lua");
+
+fn ck_game() -> TestGame {
+    let bytes = manifest::write_script(CK_MANIFEST, CK_LUA).expect("pack ck_kits");
+    let path = std::env::temp_dir().join(format!("ck-kits-test-{}.hmod", std::process::id()));
+    std::fs::write(&path, bytes).expect("write");
+    TestGame::load(&path).expect("ck_kits starts")
+}
+
+fn feedback(game: &mut TestGame) -> (String, bool) {
+    match game.drain().into_iter().next() {
+        Some(Output::Feedback { text, error }) => (text, error),
+        other => panic!("expected feedback, got {other:?}"),
+    }
+}
+
+#[test]
+fn ck_kits_save_load_roundtrip_in_creative() {
+    let mut game = ck_game();
+    game.creative = true;
+    game.inventory = vec![
+        (0, "{id:\"minecraft:diamond_sword\",count:1}".into()),
+        (103, "{id:\"minecraft:iron_helmet\",count:1}".into()),
+        (150, "{id:\"minecraft:shield\",count:1}".into()),
+    ];
+    assert!(game.command("ck save PvP Kit"));
+    assert_eq!(feedback(&mut game), ("Saved kit 'pvp_kit' (3 stacks)".into(), false));
+    assert!(game.command("ck list"));
+    assert_eq!(feedback(&mut game), ("Kits: pvp_kit".into(), false));
+    game.inventory = vec![];
+    assert!(game.command("ck load pvp_kit"));
+    let out = game.drain();
+    match &out[..] {
+        [Output::SetInventory { slots }, Output::Feedback { error: false, .. }] => {
+            assert_eq!(slots.len(), 3);
+            assert!(slots.iter().any(|(s, i)| *s == 103 && i.contains("iron_helmet")));
+        }
+        _ => panic!("unexpected output {out:?}"),
+    }
+    assert!(game.command("ck delete pvp_kit"));
+    assert!(!feedback(&mut game).1);
+    assert!(game.command("ck load pvp_kit"));
+    assert!(feedback(&mut game).1);
+}
+
+#[test]
+fn ck_kits_refuse_outside_creative() {
+    let mut game = ck_game();
+    assert!(game.command("ck save a"));
+    let (text, error) = feedback(&mut game);
+    assert!(error && text.contains("creative"), "{text}");
+}

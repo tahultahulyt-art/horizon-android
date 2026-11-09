@@ -12,7 +12,7 @@ file, network or package access of their own.
 
 Same `horizon-mod.toml` as any mod. In this build a script mod is
 client-side (`side = "client"`, the default) and may declare only
-`game-read`, `hud`, `chat` and `storage`; more of the contract opens as
+`game-read`, `hud`, `chat`, `storage` and `inventory`; more of the contract opens as
 the script API grows.
 
 ```toml
@@ -68,6 +68,17 @@ end
   `storage.set(key, value)`, `storage.delete(key)`. Keys
   `[a-z0-9_.-]{1,64}`; the same per-mod folder, quota (4 MiB, 64 keys) and
   write budget as WebAssembly mods.
+
+- `inventory` (capability `inventory`, "see everything in your inventory
+  and, in creative mode, replace it"):
+  - `inventory.read()` → `{ {slot = n, item = "<SNBT>"}, ... }`, one entry
+    per non-empty slot: 0-35 inventory (0-8 hotbar), 100-103 armor feet to
+    head, 150 offhand. Filled only inside `on_command`; elsewhere empty.
+  - `inventory.creative()` → true in creative mode.
+  - `inventory.replace(entries)` — entries in the shape `read()` returns;
+    every slot not listed becomes empty. Creative mode only; an unreadable
+    item changes nothing. A server still has the last word: it takes the
+    change only from a creative player.
 
 ## Limits and safety
 

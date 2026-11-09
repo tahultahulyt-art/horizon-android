@@ -24,8 +24,14 @@
 //!   `set(key, value)`, `delete(key)`; keys `[a-z0-9_.-]{1,64}`, the same
 //!   per-mod folder, quota and budgets WebAssembly mods get.
 //!
+//! - `inventory` (capability `inventory`): `read()` → `{ {slot=, item=}, .. }`
+//!   (item is the stack's SNBT; slots 0-35, 100-103 armor feet to head, 150
+//!   offhand; filled only inside `on_command`), `creative()` → true in creative
+//!   mode, and `replace(entries)` (creative mode only; unlisted slots become
+//!   empty).
+//!
 //! A script mod is client-side only in this build and may declare only
-//! `game-read`, `hud`, `chat` and `storage`; more of the contract opens as
+//! `game-read`, `hud`, `chat`, `storage` and `inventory`; more of the contract opens as
 //! the API grows (docs/script-mods.md). A script that errors in `on_tick`,
 //! `on_frame` or `on_chat`, or overruns its budget, is turned off like a
 //! WebAssembly mod that traps; the game goes on. A script error inside
@@ -60,6 +66,7 @@ const SCRIPT_CAPS: &[Capability] = &[
     Capability::Hud,
     Capability::Chat,
     Capability::Storage,
+    Capability::Inventory,
 ];
 
 /// A running Lua script mod. Its [`State`] lives in the Lua state's app
@@ -91,7 +98,7 @@ impl LuaRun {
             .find(|c| !SCRIPT_CAPS.contains(c))
         {
             return Err(format!(
-                "a Lua script mod may use only game-read, hud, chat and storage in this build, not {}",
+                "a Lua script mod may use only game-read, hud, chat, storage and inventory in this build, not {}",
                 cap.describe()
             ));
         }
@@ -372,6 +379,72 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
         )
         .map_err(toml_err)?;
         g.set("chat", chat).map_err(toml_err)?;
+    }
+    if m.capabilities.contains(&Capability::Inventory) {
+        let inv = lua.create_table().map_err(toml_err)?;
+        inv.set(
+            "read",
+            lua.create_function(|lua, ()| {
+                let items = with_data(lua, |d| d.snapshot.inventory.clone());
+                let out = lua.create_table()?;
+                for (i, (slot, snbt)) in items.iter().enumerate() {
+                    let e = lua.create_table()?;
+                    e.set("slot", *slot)?;
+                    e.set("item", snbt.as_str())?;
+                    out.set(i + 1, e)?;
+                }
+                Ok(out)
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        inv.set(
+            "creative",
+            lua.create_function(|lua, ()| Ok(with_data(lua, |d| d.snapshot.creative)))
+                .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        inv.set(
+            "replace",
+            lua.create_function(|lua, entries: Table| {
+                let mut slots: Vec<(u8, String)> = Vec::new();
+                for e in entries.sequence_values::<Table>() {
+                    let e = e?;
+                    let slot: u8 = e.get("slot")?;
+                    let item: String = e.get("item")?;
+                    if !matches!(slot, 0..=35 | 100..=103 | 150) {
+                        return Err(mlua::Error::external(format!(
+                            "inventory.replace: no slot {slot}"
+                        )));
+                    }
+                    if item.len() > 16384 {
+                        return Err(mlua::Error::external("inventory.replace: an item is too big"));
+                    }
+                    if slots.iter().any(|(s, _)| *s == slot) {
+                        return Err(mlua::Error::external(format!(
+                            "inventory.replace: slot {slot} twice"
+                        )));
+                    }
+                    slots.push((slot, item));
+                    if slots.len() > 41 {
+                        return Err(mlua::Error::external("inventory.replace: too many slots"));
+                    }
+                }
+                with_data(lua, |d| {
+                    if !d.snapshot.creative {
+                        return Err(mlua::Error::external(
+                            "only in creative mode",
+                        ));
+                    }
+                    d.out.retain(|o| !matches!(o, Output::SetInventory { .. }));
+                    d.out.push(Output::SetInventory { slots });
+                    Ok(())
+                })
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        g.set("inventory", inv).map_err(toml_err)?;
     }
     if m.capabilities.contains(&Capability::Storage) {
         let storage = lua.create_table().map_err(toml_err)?;
