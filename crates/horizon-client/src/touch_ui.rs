@@ -86,7 +86,7 @@ fn boxed_utilities(w: f32, h: f32) -> [([f32; 4], &'static str, bool); 2] {
         (
             [
                 w * 450.0 / 1598.0 - 90.0 * unit,
-                67.0 * unit,
+                100.0 * h / 719.0 - 33.0 * unit,
                 180.0 * unit,
                 66.0 * unit,
             ],
