@@ -242,3 +242,135 @@ fn waypoints_reject_duplicates_bad_coordinates_and_over_limit() {
     }
     assert_eq!(game.status(),&Status::Running);
 }
+
+const UI_MANIFEST: &str = r#"
+id = "ui_menu"
+name = "UI Menu"
+version = "1.0.0"
+description = "A menu on a key."
+authors = ["test"]
+api = "0.1"
+side = "client"
+capabilities = ["chat", "ui", "input"]
+experimental = ["ui", "input"]
+"#;
+
+const UI_MOD: &str = r#"
+MOD = { commands = {} }
+
+input.register_key("open", "Open the menu", "key.keyboard.n")
+ui.set_settings({
+  { type = "button", id = 10, label = "Beams: on" },
+})
+
+function on_key(name, down)
+  if name == "open" and down then
+    ui.open_screen({
+      title = "Waypoints",
+      widgets = {
+        { type = "text", id = 1, text = "Points", color = 0xFFFFFF },
+        { type = "list", id = 2, rows = { "a", "b" }, selected = 0 },
+        { type = "button", id = 3, label = "Add" },
+        { type = "item", id = 4, item = "minecraft:torch", name = "Beam" },
+      },
+    })
+  end
+end
+
+function on_ui_select(id, row)
+  if id == 3 then
+    ui.close_screen()
+  elseif id == 2 then
+    chat.show("picked " .. row)
+  end
+end
+
+function on_ui_closed()
+  chat.show("closed")
+end
+
+function on_ui_settings()
+  ui.set_settings({
+    { type = "button", id = 10, label = "Beams: off" },
+  })
+end
+"#;
+
+#[test]
+fn script_mod_opens_screens_and_answers_picks() {
+    let bytes = manifest::write_script(UI_MANIFEST, UI_MOD).expect("pack the ui mod");
+    let path = std::env::temp_dir().join(format!("horizon-script-test-ui-{}.ksmod", std::process::id()));
+    std::fs::write(&path, bytes).expect("write the test mod");
+    let mut game = TestGame::load(&path).expect("the ui mod starts");
+
+    // The settings page got the widgets the script pushed at load.
+    let settings = game.settings_widgets();
+    assert!(
+        matches!(&settings[..], [horizon_mods::UiWidget::Button(b)] if b.id == 10 && b.label == "Beams: on"),
+        "settings widgets: {settings:?}"
+    );
+
+    // The registered key is there, under the mod's name.
+    let keys = game.mod_keys();
+    assert!(
+        matches!(&keys[..], [(m, k)] if m == "UI Menu" && k.name == "open" && k.key == "key.keyboard.n"),
+        "registered key: {keys:?}"
+    );
+    assert!(game.screen().is_none(), "no screen before the key");
+
+    // Pressing the key opens the screen.
+    game.key("key.keyboard.n", true);
+    game.key("key.keyboard.n", false);
+    let screen = game.screen().expect("on_key opened a screen");
+    let _ = game.drain();
+    assert_eq!(screen.title, "Waypoints");
+    assert_eq!(screen.widgets.len(), 4);
+    assert!(
+        matches!(&screen.widgets[1], horizon_mods::UiWidget::List(l) if l.id == 2 && l.rows == ["a", "b"]),
+        "the list widget: {:?}",
+        screen.widgets
+    );
+
+    // A row pick runs on_ui_select; a button pick closes the screen and
+    // on_ui_closed hears it.
+    game.ui_select(2, 1);
+    let out = game.drain();
+    assert!(
+        out.iter().any(|o| matches!(o, Output::Chat { text, .. } if text == "picked 1")),
+        "list pick: {out:?}"
+    );
+    game.ui_select(3, 0);
+    assert!(game.screen().is_none(), "the button closed the screen");
+    let _ = game.drain();
+    // Leaving a screen (Esc/Done) runs on_ui_closed.
+    game.ui_closed();
+    let out = game.drain();
+    assert!(
+        out.iter().any(|o| matches!(o, Output::Chat { text, .. } if text == "closed")),
+        "on_ui_closed heard the close: {out:?}"
+    );
+    game.ui_closed();
+    let out = game.drain();
+    assert!(
+        matches!(&out[..], [Output::Chat { text, .. }] if text == "closed"),
+        "closed event: {out:?}"
+    );
+
+    // Opening the settings page asks the script for fresh widgets.
+    game.ui_settings_opened();
+    let settings = game.settings_widgets();
+    assert!(
+        matches!(&settings[..], [horizon_mods::UiWidget::Button(b)] if b.label == "Beams: off"),
+        "settings after on_ui_settings: {settings:?}"
+    );
+}
+
+#[test]
+fn script_ui_needs_the_capability() {
+    // Without "ui" in the manifest there is no `ui` table at all.
+    let bytes = manifest::write_script(MANIFEST, "MOD = {}\nui.open_screen({ title = \"x\", widgets = {} })\n").expect("pack");
+    let path = std::env::temp_dir().join(format!("horizon-script-test-noui-{}.ksmod", std::process::id()));
+    std::fs::write(&path, bytes).expect("write the test mod");
+    let err = TestGame::load(&path).err().expect("ui without the capability cannot start");
+    assert!(err.contains("attempt to index nil"), "no ui table without the capability: {err}");
+}

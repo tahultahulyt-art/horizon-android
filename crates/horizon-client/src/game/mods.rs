@@ -412,6 +412,7 @@ impl Game<'_> {
         self.mods.mods = mods;
         let chosen = &self.settings.mods;
         self.mods.mods.set_bindings(|id| chosen.keys_of(id));
+        self.sync_mod_touch_buttons();
         // Entries were replaced wholesale: a screen's owner index is stale.
         self.mods.screen = None;
         // Content mods may have changed the items: remade on the next read.
@@ -419,6 +420,29 @@ impl Game<'_> {
         self.list_mods();
         self.sync_mod_commands();
         self.show_mod_output();
+    }
+    /// Each registered mod key gets a custom touch button when it has none,
+    /// so a phone player can press it without a physical key (Android only:
+    /// the buttons live in the touch layout).
+    #[cfg(feature = "mods")]
+    pub(super) fn sync_mod_touch_buttons(&mut self) {
+        // The custom buttons live in the touch layout, Android-only.
+        #[cfg(target_os = "android")]
+        for (_, key) in self.mods.mods.mod_keys() {
+            // `unknown` means "bind it yourself" in Options > Mods: a
+            // placeholder touch button would do nothing.
+            if key.key == "key.keyboard.unknown"
+                || !horizon_client_render::touch::CustomButton::valid_token(&key.key)
+            {
+                continue;
+            }
+            let buttons = &mut self.pad.touch.settings.custom_buttons;
+            if buttons.len() >= 32 || buttons.iter().any(|b| b.key == key.key) {
+                continue;
+            }
+            let index = buttons.len();
+            buttons.push(horizon_client_render::touch::CustomButton::new(key.key, index));
+        }
     }
     /// Which mods this game runs: a server the server mods, the window
     /// client mods, and both when it simulates the world itself (in-frame).
@@ -798,6 +822,7 @@ impl Game<'_> {
         if self.mods.mods.reload_changed(vanilla_command) {
             let chosen = &self.settings.mods;
             self.mods.mods.set_bindings(|id| chosen.keys_of(id));
+            self.sync_mod_touch_buttons();
             self.list_mods();
             self.sync_mod_commands();
             if self.options.execution_role.is_client() {
@@ -985,7 +1010,7 @@ impl Game<'_> {
     /// A `ui` screen's title and widgets as the mod last pushed them; None
     /// when the surface is gone (the mod stopped or closed it). Borrows
     /// `mods` only, so `self.mods.screen` may stay borrowed for the scrolls.
-    fn mod_ui_view<'a>(mods: &'a Mods, ms: &ModScreen) -> Option<(&'a str, &'a [UiWidget])> {
+    fn mod_ui_view(mods: &Mods, ms: &ModScreen) -> Option<(String, Vec<UiWidget>)> {
         if ms.settings {
             let widgets = mods.settings_widgets(ms.owner);
             if widgets.is_empty() && mods.keys_of(ms.owner).is_empty() {
@@ -996,18 +1021,18 @@ impl Game<'_> {
                 .get(ms.owner)
                 .and_then(|e| e.manifest.as_ref())
                 .map_or("Mod", |m| m.name.as_str());
-            Some((name, widgets))
+            Some((name.to_owned(), widgets))
         } else {
-            let s: &UiScreen = mods.screen(ms.owner)?;
-            Some((s.title.as_str(), s.widgets.as_slice()))
+            let s: UiScreen = mods.screen(ms.owner)?;
+            Some((s.title, s.widgets))
         }
     }
     /// The keys a settings page lists first: the mod's own (`input`).
-    fn mod_page_keys<'a>(mods: &'a Mods, ms: &ModScreen) -> &'a [ModKey] {
+    fn mod_page_keys(mods: &Mods, ms: &ModScreen) -> Vec<ModKey> {
         if ms.settings {
             mods.keys_of(ms.owner)
         } else {
-            &[]
+            Vec::new()
         }
     }
     /// A key row's label as Key Binds shows one, "Zoom: Z", marked
@@ -1192,7 +1217,7 @@ impl Game<'_> {
             );
         }
         let top = MOD_UI_TOP + keys.len() as f32 * MOD_UI_KEY_ROW;
-        let layout = Self::mod_ui_layout(batch.height, top, widgets);
+        let layout = Self::mod_ui_layout(batch.height, top, &widgets);
         let mut list_i = 0usize;
         for (w, &(wy, wh)) in widgets.iter().zip(&layout) {
             match w {
@@ -1345,7 +1370,7 @@ impl Game<'_> {
             return;
         }
         let top = MOD_UI_TOP + keys.len() as f32 * MOD_UI_KEY_ROW;
-        let layout = Self::mod_ui_layout(h, top, widgets);
+        let layout = Self::mod_ui_layout(h, top, &widgets);
         let mut list_i = 0usize;
         // The `ui_select` call needs `&mut`: find the pick first.
         let mut hit = None;
@@ -1391,7 +1416,7 @@ impl Game<'_> {
         let x = (w / 2.0).floor() - MOD_UI_COLUMN / 2.0;
         let top =
             MOD_UI_TOP + Self::mod_page_keys(&self.mods.mods, ms).len() as f32 * MOD_UI_KEY_ROW;
-        let layout = Self::mod_ui_layout(h, top, widgets);
+        let layout = Self::mod_ui_layout(h, top, &widgets);
         let mut list_i = 0usize;
         for (w, &(wy, wh)) in widgets.iter().zip(&layout) {
             let UiWidget::List(l) = w else { continue };

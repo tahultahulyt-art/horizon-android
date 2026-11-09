@@ -277,6 +277,35 @@ impl TestGame {
     pub fn panel(&self) -> Option<Panel> {
         self.mods.panels().next()
     }
+    /// The screen the mod opened (capability `ui`), as the game draws it.
+    pub fn screen(&self) -> Option<crate::UiScreen> {
+        self.mods.screen(0)
+    }
+    /// The widgets the mod pushed for its settings page (capability `ui`).
+    pub fn settings_widgets(&self) -> Vec<crate::UiWidget> {
+        self.mods.settings_widgets(0)
+    }
+    /// A pick on the open surface's widget `id` (`row` for a list), as the
+    /// game sends it.
+    pub fn ui_select(&mut self, id: u32, row: u32) {
+        self.mods.ui_select(0, id, row);
+    }
+    /// The player left the mod's screen.
+    pub fn ui_closed(&mut self) {
+        self.mods.ui_closed(0);
+    }
+    /// The player opened the mod's page in Options > Mods.
+    pub fn ui_settings_opened(&mut self) {
+        self.mods.ui_settings_opened(0);
+    }
+    /// The mod's keys, `(mod name, key)` as Controls shows them.
+    pub fn mod_keys(&self) -> Vec<(String, crate::ModKey)> {
+        self.mods.mod_keys()
+    }
+    /// A press or release of the key token the mod's key is bound to.
+    pub fn key(&mut self, key: &str, down: bool) {
+        self.mods.key(key, down);
+    }
     pub fn waypoints(&self) -> Vec<crate::Waypoint> {
         let mut out = Vec::new();
         self.mods.visit_waypoints(|p| out.push(p.clone()));

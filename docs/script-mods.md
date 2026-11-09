@@ -12,8 +12,10 @@ file, network or package access of their own.
 
 Same `horizon-mod.toml` as any mod. In this build a script mod is
 client-side (`side = "client"`, the default) and may declare only
-`game-read`, `hud`, `chat`, `storage` and `inventory`; more of the contract opens as
-the script API grows.
+`game-read`, `hud`, `chat`, `storage`, `inventory`, `ui` and `input`;
+more of the contract opens as
+the script API grows. `ui` and `input` are experimental: a script that
+uses them also declares `experimental = ["ui", "input"]` (docs/api/stability.md).
 
 ```toml
 id = "my_mod"
@@ -76,6 +78,29 @@ end
   `storage.set(key, value)`, `storage.delete(key)`. Keys
   `[a-z0-9_.-]{1,64}`; the same per-mod folder, quota (4 MiB, 64 keys) and
   write budget as WebAssembly mods.
+
+- `ui` (capability `ui`, experimental): the mod's own screens and its
+  page in Options > Mods, drawn with the menus' own widgets.
+  - `ui.open_screen({title = "...", widgets = {...}})` — opens the
+    screen; one per mod, a new call replaces it.
+  - `ui.close_screen()` — closes it.
+  - `ui.set_settings(widgets)` — the widgets Options > Mods shows for
+    the mod (also called again from `on_ui_settings`).
+  - Widgets: `{type = "text", id = n, text = "...", color = 0xRRGGBB}`,
+    `{type = "button", id = n, label = "..."}`,
+    `{type = "list", id = n, rows = {"...", ...}, selected = row-or-nil}`,
+    `{type = "item", id = n, item = "minecraft:diamond", name = "..."}`.
+    There is no text-field widget: typed input stays a chat command.
+  - Events: `on_ui_select(id, row)` (a button was clicked, `row` 0; a
+    list row was picked), `on_ui_closed()` (Esc or Done left the
+    screen), `on_ui_settings()` (the settings page opened).
+- `input` (capability `input`, experimental):
+  - `input.register_key(name, label, key)` — a key the player can
+    rebind in Options > Mods; `key` is a token like `"key.keyboard.n"`,
+    `"key.keyboard.unknown"` means "bind it yourself".
+  - `on_key(name, down)` — the registered key was pressed or released
+    while playing. On touch, each registered key also gets a custom
+    button automatically.
 
 - `inventory` (capability `inventory`, "see everything in your inventory
   and, in creative mode, replace it"):

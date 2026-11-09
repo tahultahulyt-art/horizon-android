@@ -67,6 +67,8 @@ const SCRIPT_CAPS: &[Capability] = &[
     Capability::Chat,
     Capability::Storage,
     Capability::Inventory,
+    Capability::Ui,
+    Capability::Input,
 ];
 
 /// A running Lua script mod. Its [`State`] lives in the Lua state's app
@@ -98,7 +100,7 @@ impl LuaRun {
             .find(|c| !SCRIPT_CAPS.contains(c))
         {
             return Err(format!(
-                "a Lua script mod may use only game-read, hud, chat, storage and inventory in this build, not {}",
+                "a Lua script mod may use only game-read, hud, chat, storage, inventory, ui and input in this build, not {}",
                 cap.describe()
             ));
         }
@@ -202,6 +204,22 @@ impl LuaRun {
     }
     pub fn call_chat(&self, text: &str) -> Result<(), String> {
         self.call("on_chat", (text,)).map(|_| ())
+    }
+    /// `ui-events`: a list row picked or a button pressed (`row` 0).
+    pub fn call_ui_select(&self, id: u32, row: u32) -> Result<(), String> {
+        self.call("on_ui_select", (id, row)).map(|_| ())
+    }
+    /// `ui-events`: the player left the mod's screen (Esc or Done).
+    pub fn call_ui_closed(&self) -> Result<(), String> {
+        self.call("on_ui_closed", ()).map(|_| ())
+    }
+    /// `ui-events`: the player opened the mod's page in Options > Mods.
+    pub fn call_ui_settings_opened(&self) -> Result<(), String> {
+        self.call("on_ui_settings", ()).map(|_| ())
+    }
+    /// A registered key went down or up while playing.
+    pub fn call_key(&self, name: &str, down: bool) -> Result<(), String> {
+        self.call("on_key", (name.to_owned(), down)).map(|_| ())
     }
     /// `on_command(name, args)`: a string is feedback, nil nothing, a Lua
     /// error red feedback — a command's error never stops the mod.
@@ -490,6 +508,64 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
         .map_err(toml_err)?;
         g.set("inventory", inv).map_err(toml_err)?;
     }
+    if m.capabilities.contains(&Capability::Ui) {
+        let ui = lua.create_table().map_err(toml_err)?;
+        ui.set(
+            "open_screen",
+            lua.create_function(|lua, screen: Table| {
+                let screen = parse_screen(lua, screen)?;
+                with_data(lua, |d| {
+                    use super::ui_bindings::horizon::mods::ui::Host;
+                    d.open_screen(screen);
+                });
+                Ok(())
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        ui.set(
+            "close_screen",
+            lua.create_function(|lua, ()| {
+                with_data(lua, |d| {
+                    use super::ui_bindings::horizon::mods::ui::Host;
+                    d.close_screen();
+                });
+                Ok(())
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        ui.set(
+            "set_settings",
+            lua.create_function(|lua, widgets: Table| {
+                let widgets = parse_widgets(lua, widgets)?;
+                with_data(lua, |d| {
+                    use super::ui_bindings::horizon::mods::ui::Host;
+                    d.set_settings(widgets);
+                });
+                Ok(())
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        g.set("ui", ui).map_err(toml_err)?;
+    }
+    if m.capabilities.contains(&Capability::Input) {
+        let input = lua.create_table().map_err(toml_err)?;
+        input.set(
+            "register_key",
+            lua.create_function(|lua, (name, label, key): (String, String, String)| {
+                with_data(lua, |d| {
+                    use super::render_bindings::horizon::mods::input::Host;
+                    d.register_key(name, label, key)
+                })
+                .map_err(mlua::Error::external)
+            })
+            .map_err(toml_err)?,
+        )
+        .map_err(toml_err)?;
+        g.set("input", input).map_err(toml_err)?;
+    }
     if m.capabilities.contains(&Capability::Storage) {
         let storage = lua.create_table().map_err(toml_err)?;
         storage.set(
@@ -531,6 +607,54 @@ fn install_api(lua: &Lua, m: &Manifest) -> Result<(), String> {
         g.set("storage", storage).map_err(toml_err)?;
     }
     Ok(())
+}
+
+/// A `ui` widget from a Lua table: `{type="text"|"button"|"list"|"item", id=.., ..}`.
+fn parse_widget(w: Table) -> mlua::Result<super::UiWidget> {
+    let kind: String = w.get("type")?;
+    let id: u32 = w.get("id")?;
+    Ok(match kind.as_str() {
+        "text" => super::UiWidget::Text(super::TextWidget {
+            id,
+            text: w.get("text")?,
+            color: w.get::<Option<u32>>("color")?.unwrap_or(0),
+        }),
+        "button" => super::UiWidget::Button(super::ButtonWidget {
+            id,
+            label: w.get("label")?,
+        }),
+        "list" => {
+            let rows: Vec<String> = w.get("rows")?;
+            super::UiWidget::List(super::ListWidget {
+                id,
+                rows,
+                selected: w.get::<Option<u32>>("selected")?,
+            })
+        }
+        "item" => super::UiWidget::Item(super::ItemWidget {
+            id,
+            item: w.get("item")?,
+            name: w.get::<Option<String>>("name")?.unwrap_or_default(),
+        }),
+        _ => {
+            return Err(mlua::Error::external(format!(
+                "ui widget: {kind:?} is not text, button, list or item"
+            )));
+        }
+    })
+}
+fn parse_widgets(_lua: &Lua, widgets: Table) -> mlua::Result<Vec<super::UiWidget>> {
+    let mut out = Vec::new();
+    for w in widgets.sequence_values::<Table>() {
+        out.push(parse_widget(w?)?);
+    }
+    Ok(out)
+}
+fn parse_screen(_lua: &Lua, screen: Table) -> mlua::Result<super::UiScreen> {
+    Ok(super::UiScreen {
+        title: screen.get("title")?,
+        widgets: parse_widgets(_lua, screen.get("widgets")?)?,
+    })
 }
 
 /// The mod's [`State`], for one API call. A borrow conflict would mean the

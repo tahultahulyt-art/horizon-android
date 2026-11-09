@@ -1,4 +1,4 @@
--- Original client-only waypoint mod. Requires Risiya waypoint API update.
+-- Original client-only waypoint mod. Menu: key N (or a touch button on N), /wp, or Options > Mods.
 MOD = { commands = {"wp"}, tick = true }
 local points = {}
 local loaded = false
@@ -6,6 +6,9 @@ local current_world = nil
 local beam_enabled = true
 local palette = {cyan=0x55FFFF, red=0xFF5555, green=0x55FF55, blue=0x5599FF,
   purple=0xCC77FF, pink=0xFF77BB, yellow=0xFFFF55, white=0xFFFFFF, orange=0xFFAA44}
+local COLOR_ORDER = {"cyan","red","green","blue","purple","pink","yellow","white","orange"}
+local MENU_LIST, MENU_ADD, MENU_COLOR, MENU_BEAM, MENU_HIDE, MENU_RENAME, MENU_REMOVE, MENU_BEAMS = 1, 2, 3, 4, 5, 6, 7, 8
+local selected = 1
 local function fail(message) error(message, 0) end
 local function valid_name(s)
   return s and #s >= 1 and #s <= 24 and s:match("^[%w_-]+$")
@@ -73,6 +76,102 @@ local function find(name,world,dim)
   end
   fail("No waypoint with that name in this world/dimension. Use /wp list")
 end
+local function world_points(world, dim)
+  local out = {}
+  for i, p in ipairs(points) do
+    if p.world_id == world and p.dimension == dim then out[#out+1] = i end
+  end
+  return out
+end
+local function color_name(c)
+  for _, n in ipairs(COLOR_ORDER) do if palette[n] == c then return n end end
+  return string.format("#%06X", c or 0)
+end
+local function menu_widgets()
+  local world, player = context()
+  local dim = player.dimension
+  local here = world_points(world, dim)
+  if #here == 0 then selected = 1 end
+  if selected > #here then selected = #here end
+  local rows = {}
+  for _, i in ipairs(here) do
+    local p = points[i]
+    local d = math.sqrt((p.x-player.x)^2 + (p.y-player.y)^2 + (p.z-player.z)^2)
+    rows[#rows+1] = p.name .. string.format(" - %.0f m", d) .. (p.hidden and " [hidden]" or "")
+  end
+  if #rows == 0 then rows = {"(no waypoints here)"} end
+  local w = {
+    {type="list", id=MENU_LIST, rows=rows, selected=(#here>0) and selected or nil},
+    {type="button", id=MENU_ADD, label="Add point here"},
+  }
+  if #here > 0 then
+    local p = points[here[selected]]
+    w[#w+1] = {type="button", id=MENU_COLOR, label="Color: " .. color_name(p.color)}
+    w[#w+1] = {type="button", id=MENU_BEAM, label="Beam: " .. (p.beam and "on" or "off")}
+    w[#w+1] = {type="button", id=MENU_HIDE, label=p.hidden and "Show" or "Hide"}
+    w[#w+1] = {type="button", id=MENU_RENAME, label="Rename (chat: /wp rename "..p.name.." new)"}
+    w[#w+1] = {type="button", id=MENU_REMOVE, label="Remove '"..p.name.."'"}
+  end
+  w[#w+1] = {type="button", id=MENU_BEAMS, label="All beams: " .. (beam_enabled and "on" or "off")}
+  return w
+end
+local function open_menu()
+  ui.open_screen({title="Waypoints", widgets=menu_widgets()})
+end
+local function next_color(c)
+  for i, n in ipairs(COLOR_ORDER) do
+    if palette[n] == c then return palette[COLOR_ORDER[(i % #COLOR_ORDER) + 1]] end
+  end
+  return palette[COLOR_ORDER[1]]
+end
+function on_ui_select(id, row)
+  load()
+  local world, player = context()
+  local dim = player.dimension
+  local here = world_points(world, dim)
+  if id == MENU_LIST then
+    if #here > 0 and row >= 1 and row <= #here then selected = row end
+  elseif id == MENU_ADD then
+    if #here >= 32 then chat.show("Waypoint menu: this dimension is full (32)") return end
+    local n = 1
+    local taken = {}
+    for _, i in ipairs(here) do taken[points[i].name:lower()] = true end
+    while taken["point"..n] do n = n + 1 end
+    local name = "point"..n
+    points[#points+1] = {name=name, world_id=world, dimension=dim, x=player.x, y=player.y, z=player.z,
+      color=palette.cyan, hidden=false, beam=true}
+    save(); publish()
+    chat.show("Saved '"..name.."' - rename with /wp rename "..name.." <new>")
+  elseif #here == 0 then
+    return
+  else
+    local p = points[here[selected]]
+    if not p then return end
+    if id == MENU_COLOR then p.color = next_color(p.color)
+    elseif id == MENU_BEAM then p.beam = not p.beam
+    elseif id == MENU_HIDE then p.hidden = not p.hidden
+    elseif id == MENU_RENAME then
+      chat.show("Type: /wp rename "..p.name.." <new name>")
+    elseif id == MENU_REMOVE then
+      table.remove(points, here[selected])
+      save(); publish(); open_menu(); return
+    end
+    save(); publish()
+  end
+  open_menu()
+end
+function on_ui_settings()
+  local ok, w = pcall(menu_widgets)
+  if ok then ui.set_settings(w) end
+end
+input.register_key("open", "Waypoints", "key.keyboard.n")
+function on_key(name, down)
+  if name == "open" and down then
+    load()
+    local ok = pcall(open_menu)
+    if not ok then chat.show("Waypoint menu needs a world (join first)") end
+  end
+end
 function on_tick(t)
   load()
   -- Retained primitives need no Lua per rendered frame. No storage I/O on ticks.
@@ -89,7 +188,8 @@ function on_command(command,args)
   load()
   local a={}
   for word in args:gmatch("%S+") do a[#a+1]=word end
-  local sub=(a[1] or "help"):lower()
+  local sub=(a[1] or "menu"):lower()
+  if sub=="menu" and ui then open_menu() return end
   if sub=="help" then
     return "/wp add name [color] OR /wp add name x y z [color]\n/wp list | /wp remove name | /wp hide name | /wp show name\n/wp edit name color value | coords x y z | rename newname | beam on/off\n/wp beam on/off (all beams)"
   end

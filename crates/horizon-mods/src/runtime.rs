@@ -1315,51 +1315,53 @@ impl Mods {
     }
     /// Some running mod claimed items (capability `input`).
     pub fn claims_any(&self) -> bool {
-        self.inputs().any(|i| !i.claimed.is_empty())
+        self.inputs_any(|i| !i.claimed.is_empty())
     }
     /// Some running mod claimed the item `id`.
     pub fn claims(&self, id: &str) -> bool {
-        self.inputs().any(|i| i.claimed.iter().any(|c| c == id))
+        self.inputs_any(|i| i.claimed.iter().any(|c| c == id))
     }
     /// Some running mod registered a key.
     pub fn has_keys(&self) -> bool {
-        self.inputs().any(|i| !i.keys.is_empty())
+        self.inputs_any(|i| !i.keys.is_empty())
     }
     /// The mods' keys: (mod name, key name, label, key), for Controls.
-    pub fn mod_keys(&self) -> impl Iterator<Item = (&str, &ModKey)> {
-        self.entries
-            .iter()
-            .filter_map(|e| e.run.as_ref()?.wasm())
-            .flat_map(|w| {
-                let d = w.store.data();
-                d.input.keys.iter().map(move |k| (d.name.as_str(), k))
-            })
+    pub fn mod_keys(&self) -> Vec<(String, ModKey)> {
+        let mut out = Vec::new();
+        for e in &self.entries {
+            let Some(r) = e.run.as_ref() else {
+                continue;
+            };
+            let d = r.data();
+            for k in &d.input.keys {
+                out.push((d.name.clone(), k.clone()));
+            }
+        }
+        out
     }
     /// Mod `i`'s keys, as it registered them (with the player's choices).
-    pub fn keys_of(&self, i: usize) -> &[ModKey] {
+    pub fn keys_of(&self, i: usize) -> Vec<ModKey> {
         self.entries
             .get(i)
             .and_then(|e| e.run.as_ref())
-            .and_then(|r| r.wasm())
-            .map_or(&[], |w| w.store.data().input.keys.as_slice())
+            .map_or(Vec::new(), |r| r.data().input.keys.clone())
     }
     /// The keys the player chose (`ui`'s key widget), by mod id: each
     /// running mod's `name → key`. They replace the defaults registered
     /// so far and later ones. Keys that aren't keys are skipped.
     pub fn set_bindings<'a>(&mut self, chosen: impl Fn(&str) -> Vec<(&'a str, &'a str)>) {
         for e in &mut self.entries {
-            let (Some(m), Some(w)) = (&e.manifest, e.run.as_mut().and_then(|r| r.wasm_mut()))
-            else {
+            let (Some(m), Some(r)) = (&e.manifest, e.run.as_mut()) else {
                 continue;
             };
-            let input = &mut w.store.data_mut().input;
-            input.bindings = chosen(&m.id)
+            let mut g = r.data_mut();
+            g.input.bindings = chosen(&m.id)
                 .into_iter()
                 .filter(|(_, key)| key_ok(key))
                 .map(|(n, k)| (n.to_owned(), k.to_owned()))
                 .collect();
-            for (name, key) in input.bindings.clone() {
-                input.rebind(&name, key);
+            for (name, key) in g.input.bindings.clone() {
+                g.input.rebind(&name, key);
             }
         }
     }
@@ -1367,21 +1369,16 @@ impl Mods {
     /// `key.mouse.4`, `key.keyboard.unknown` for none). False when the mod
     /// has no such key or `key` isn't one.
     pub fn rebind(&mut self, i: usize, name: &str, key: &str) -> bool {
-        let Some(w) = self
-            .entries
-            .get_mut(i)
-            .and_then(|e| e.run.as_mut())
-            .and_then(|r| r.wasm_mut())
-        else {
+        let Some(r) = self.entries.get_mut(i).and_then(|e| e.run.as_mut()) else {
             return false;
         };
-        let input = &mut w.store.data_mut().input;
-        if !key_ok(key) || !input.keys.iter().any(|k| k.name == name) {
+        let mut g = r.data_mut();
+        if !key_ok(key) || !g.input.keys.iter().any(|k| k.name == name) {
             return false;
         }
-        input.bindings.retain(|(n, _)| n != name);
-        input.bindings.push((name.to_owned(), key.to_owned()));
-        input.rebind(name, key.to_owned());
+        g.input.bindings.retain(|(n, _)| n != name);
+        g.input.bindings.push((name.to_owned(), key.to_owned()));
+        g.input.rebind(name, key.to_owned());
         true
     }
     /// The use button went down with `item`: `use-start` to each mod that
@@ -1404,56 +1401,110 @@ impl Mods {
     /// The key `key` (`key.keyboard.r`) went down or up: each mod with a
     /// key on it hears its own name for it.
     pub fn key(&mut self, key: &str, down: bool) {
-        for w in self
-            .entries
-            .iter_mut()
-            .filter_map(|e| e.run.as_mut())
-            .filter_map(|r| r.wasm_mut())
-        {
-            let input = &mut w.store.data_mut().input;
-            let names: Vec<String> = input
-                .keys
-                .iter()
-                .filter(|k| k.key == key)
-                .map(|k| k.name.clone())
-                .collect();
-            for name in names {
-                let held = input.down.iter().position(|n| *n == name);
-                match (down, held) {
-                    (true, None) => input.down.push(name.clone()),
-                    (false, Some(i)) => {
-                        input.down.swap_remove(i);
+        let mut lua_calls: Vec<(usize, String, bool)> = Vec::new();
+        for (i, e) in self.entries.iter_mut().enumerate() {
+            let Some(r) = e.run.as_mut() else {
+                continue;
+            };
+            let names: Vec<String> = {
+                let d = r.data();
+                d.input
+                    .keys
+                    .iter()
+                    .filter(|k| k.key == key)
+                    .map(|k| k.name.clone())
+                    .collect()
+            };
+            if names.is_empty() {
+                continue;
+            }
+            if let Running::Wasm(w) = r {
+                let input = &mut w.store.data_mut().input;
+                for name in names {
+                    let held = input.down.iter().position(|n| *n == name);
+                    match (down, held) {
+                        (true, None) => input.down.push(name.clone()),
+                        (false, Some(pos)) => {
+                            input.down.swap_remove(pos);
+                        }
+                        // Already let go when a screen opened.
+                        (false, None) => continue,
+                        (true, Some(_)) => {}
                     }
-                    // Already let go when a screen opened.
-                    (false, None) => continue,
-                    (true, Some(_)) => {}
+                    input.push(if down {
+                        InputEvent::KeyDown(name)
+                    } else {
+                        InputEvent::KeyUp(name)
+                    });
                 }
-                input.push(if down {
-                    InputEvent::KeyDown(name)
-                } else {
-                    InputEvent::KeyUp(name)
-                });
+            } else {
+                // A script mod hears its keys as `on_key` calls, not a poll.
+                let mut d = r.data_mut();
+                for name in names {
+                    let held = d.input.down.iter().position(|n| *n == name);
+                    match (down, held) {
+                        (true, None) => d.input.down.push(name.clone()),
+                        (false, Some(pos)) => {
+                            d.input.down.swap_remove(pos);
+                        }
+                        (false, None) => continue,
+                        (true, Some(_)) => {}
+                    }
+                    lua_calls.push((i, name, down));
+                }
             }
         }
+        #[cfg(feature = "scripts")]
+        for (i, name, down) in lua_calls {
+            self.call(i, FUEL_EVENT, |run| {
+                let _ = &run;
+                #[cfg(feature = "scripts")]
+                if let Running::Lua(l) = run {
+                    return l.call_key(&name, down);
+                }
+                Ok(())
+            });
+        }
+        #[cfg(not(feature = "scripts"))]
+        let _ = lua_calls;
     }
     /// A screen opened, or the game stopped playing: every mod key held
     /// lets go (`key-up`), so a key needs a new press afterwards.
     pub fn release_keys(&mut self) {
-        for w in self
-            .entries
-            .iter_mut()
-            .filter_map(|e| e.run.as_mut())
-            .filter_map(|r| r.wasm_mut())
-        {
-            let input = &mut w.store.data_mut().input;
-            for name in std::mem::take(&mut input.down) {
-                input.push(InputEvent::KeyUp(name));
+        let mut lua_calls: Vec<(usize, String)> = Vec::new();
+        for (i, e) in self.entries.iter_mut().enumerate() {
+            let Some(r) = e.run.as_mut() else {
+                continue;
+            };
+            if let Running::Wasm(w) = r {
+                let input = &mut w.store.data_mut().input;
+                for name in std::mem::take(&mut input.down) {
+                    input.push(InputEvent::KeyUp(name));
+                }
+            } else {
+                let mut d = r.data_mut();
+                for name in std::mem::take(&mut d.input.down) {
+                    lua_calls.push((i, name));
+                }
             }
         }
+        #[cfg(feature = "scripts")]
+        for (i, name) in lua_calls {
+            self.call(i, FUEL_EVENT, |run| {
+                let _ = &run;
+                #[cfg(feature = "scripts")]
+                if let Running::Lua(l) = run {
+                    return l.call_key(&name, false);
+                }
+                Ok(())
+            });
+        }
+        #[cfg(not(feature = "scripts"))]
+        let _ = lua_calls;
     }
     /// Some running mod holds the mouse wheel.
     pub fn wheel_claimed(&self) -> bool {
-        self.inputs().any(|i| i.wheel)
+        self.inputs_any(|i| i.wheel)
     }
     /// Wheel steps while playing: `wheel` to the mods holding it; false
     /// when none does (the hotbar takes them).
@@ -1482,10 +1533,11 @@ impl Mods {
             .iter()
             .find_map(|e| e.run.as_ref()?.wasm()?.store.data().far_terrain)
     }
-    fn inputs(&self) -> impl Iterator<Item = &InputState> {
+    fn inputs_any(&self, f: impl Fn(&InputState) -> bool) -> bool {
         self.entries
             .iter()
-            .filter_map(|e| Some(&e.run.as_ref()?.wasm()?.store.data().input))
+            .filter_map(|e| e.run.as_ref())
+            .any(|r| f(&r.data().input))
     }
     fn push_input(&mut self, to: impl Fn(&InputState) -> bool, event: &InputEvent) {
         for w in self
@@ -1509,42 +1561,61 @@ impl Mods {
             .flat_map(|w| &w.store.data().shapes)
     }
     /// The screen mod `i` last pushed with `ui.open-screen`, while it is up.
-    pub fn screen(&self, i: usize) -> Option<&UiScreen> {
-        self.entries
-            .get(i)?
-            .run
-            .as_ref()?
-            .wasm()?
-            .store
-            .data()
-            .ui
-            .screen
-            .as_ref()
+    pub fn screen(&self, i: usize) -> Option<UiScreen> {
+        self.entries.get(i)?.run.as_ref()?.data().ui.screen.clone()
     }
     /// The widgets `ui.set-settings` pushed: mod `i`'s page in
     /// Options > Mods. Empty while it has none.
-    pub fn settings_widgets(&self, i: usize) -> &[UiWidget] {
+    pub fn settings_widgets(&self, i: usize) -> Vec<UiWidget> {
         self.entries
             .get(i)
             .and_then(|e| e.run.as_ref())
-            .and_then(|r| r.wasm())
-            .map_or(&[], |w| &w.store.data().ui.settings)
+            .map_or(Vec::new(), |r| r.data().ui.settings.clone())
     }
     /// A `list` widget's row was picked on a surface of mod `i`.
     pub fn ui_select(&mut self, i: usize, id: u32, row: u32) {
-        self.ui_event(i, |ui, s| {
-            ui.horizon_mods_ui_events().call_select(s, id, row)
-        });
+        self.ui_event(
+            i,
+            |ui, s| ui.horizon_mods_ui_events().call_select(s, id, row),
+            |run| {
+                let _ = &run;
+                #[cfg(feature = "scripts")]
+                if let Running::Lua(l) = run {
+                    return l.call_ui_select(id, row);
+                }
+                Ok(())
+            },
+        );
     }
     /// The player left mod `i`'s screen (Esc or Done).
     pub fn ui_closed(&mut self, i: usize) {
-        self.ui_event(i, |ui, s| ui.horizon_mods_ui_events().call_closed(s));
+        self.ui_event(
+            i,
+            |ui, s| ui.horizon_mods_ui_events().call_closed(s),
+            |run| {
+                let _ = &run;
+                #[cfg(feature = "scripts")]
+                if let Running::Lua(l) = run {
+                    return l.call_ui_closed();
+                }
+                Ok(())
+            },
+        );
     }
     /// The player opened mod `i`'s settings page.
     pub fn ui_settings_opened(&mut self, i: usize) {
-        self.ui_event(i, |ui, s| {
-            ui.horizon_mods_ui_events().call_settings_opened(s)
-        });
+        self.ui_event(
+            i,
+            |ui, s| ui.horizon_mods_ui_events().call_settings_opened(s),
+            |run| {
+                let _ = &run;
+                #[cfg(feature = "scripts")]
+                if let Running::Lua(l) = run {
+                    return l.call_ui_settings_opened();
+                }
+                Ok(())
+            },
+        );
     }
     /// A `ui-events` call on mod `i`; no export, no call (mods built
     /// before `ui` have none).
@@ -1552,6 +1623,7 @@ impl Mods {
         &mut self,
         i: usize,
         f: impl FnOnce(&UiHost, &mut Store<State>) -> wasmtime::Result<()>,
+        g: impl FnOnce(&mut Running) -> Result<(), String>,
     ) {
         let has_ui = self
             .entries
@@ -1565,7 +1637,11 @@ impl Mods {
                 f(w.ui.as_ref().expect("checked above"), &mut w.store)
                     .map_err(|e| reason(&e))
             });
+            return;
         }
+        // A script mod's `ui` surface (or an older mod with none): the
+        // closure no-ops for runs without one.
+        self.call(i, FUEL_EVENT, g);
     }
     /// What mods asked to show since the last call.
     pub fn drain(&mut self) -> Vec<Output> {

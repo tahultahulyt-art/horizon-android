@@ -5,4 +5,5 @@ description = "Named colored world markers, distance labels and optional beams. 
 authors = ["Rahul_the_og"]
 api = "0.1"
 side = "client"
-capabilities = ["game-read", "hud", "storage"]
+capabilities = ["game-read", "hud", "storage", "ui", "input"]
+experimental = ["ui", "input"]
