@@ -2098,6 +2098,14 @@ struct WorldIcon {
     last_attempt: Option<Instant>,
 }
 
+/// The extras "Auto water bucket" state (`game/remote.rs`'s auto_mlg_*): the
+/// ground block to click with the bucket and the hotbar slot to restore
+/// after, and a retry wait in ticks.
+#[derive(Default)]
+struct AutoMlg {
+    pending: Option<([i32; 3], usize)>,
+    cooldown: u32,
+}
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
     res: Arc<Resources>,
@@ -2447,6 +2455,8 @@ struct Game<'a> {
     use_clicks: u32,
     hand_strength: horizon_client::attack_strength::AttackStrength,
     settings: Settings,
+    /// The extras "Auto water bucket" (`game/remote.rs`'s auto_mlg_*).
+    auto_mlg: AutoMlg,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -18235,6 +18245,7 @@ impl<'a> Game<'a> {
             use_clicks: 0,
             hand_strength: Default::default(),
             settings,
+            auto_mlg: AutoMlg::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,

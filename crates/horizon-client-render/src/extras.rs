@@ -99,6 +99,12 @@ pub struct Extras {
     pub auto_reconnect: bool,
     /// The player's own name tag over its model in third person.
     pub own_name_tag: bool,
+    /// The animated cape (`crate::animated_cape`): 0 is off, else 1-based
+    /// into `animated_cape::CHOICES`.
+    pub animated_cape: u8,
+    /// A water bucket in the hotbar placed below a fall that would hurt,
+    /// single player only (`docs/extras.md`).
+    pub auto_mlg: bool,
     /// Mouse Tweaks-style drags in the inventory and storage containers.
     pub mouse_tweaks: bool,
     /// With them, the wheel over a slot moves its items one at a time.
@@ -140,6 +146,8 @@ impl Default for Extras {
             minimap_rotate: false,
             auto_reconnect: false,
             own_name_tag: false,
+            animated_cape: 0,
+            auto_mlg: false,
             mouse_tweaks: false,
             mouse_tweaks_wheel: true,
             sort: false,
@@ -215,6 +223,12 @@ impl Extras {
                 "minimapRotate" => e.minimap_rotate = flag(e.minimap_rotate),
                 "autoReconnect" => e.auto_reconnect = flag(e.auto_reconnect),
                 "ownNameTag" => e.own_name_tag = flag(e.own_name_tag),
+                "animatedCape" => {
+                    if let Ok(v) = value.parse::<u8>() {
+                        e.animated_cape = v.min(crate::animated_cape::CHOICES.len() as u8);
+                    }
+                }
+                "autoMlg" => e.auto_mlg = flag(e.auto_mlg),
                 "mouseTweaks" => e.mouse_tweaks = flag(e.mouse_tweaks),
                 "mouseTweaksWheel" => e.mouse_tweaks_wheel = flag(e.mouse_tweaks_wheel),
                 "sort" => e.sort = flag(e.sort),
@@ -229,7 +243,7 @@ impl Extras {
     }
     pub fn serialize(&self) -> String {
         format!(
-            "fullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nownNameTag:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\n{}:{}\nagentControl:{}\ndiscordPresence:{}\n",
+            "fullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nownNameTag:{}\nanimatedCape:{}\nautoMlg:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\n{}:{}\nagentControl:{}\ndiscordPresence:{}\n",
             bool_text(self.fullbright),
             bool_text(self.dynamic_lights),
             bool_text(self.zoom),
@@ -256,6 +270,8 @@ impl Extras {
             bool_text(self.minimap_rotate),
             bool_text(self.auto_reconnect),
             bool_text(self.own_name_tag),
+            self.animated_cape,
+            bool_text(self.auto_mlg),
             bool_text(self.mouse_tweaks),
             bool_text(self.mouse_tweaks_wheel),
             bool_text(self.sort),
@@ -384,7 +400,9 @@ pub enum Item {
     Fullbright,
     DynamicLights,
     OwnNameTag,
+    AnimatedCape,
     AutoReconnect,
+    AutoMlg,
     MouseTweaks,
     MouseTweaksWheel,
     Sort,
@@ -404,6 +422,7 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
         Ok(DynamicLights),
         Err("Third person"),
         Ok(OwnNameTag),
+        Ok(AnimatedCape),
         Err("Inventory"),
         Ok(MouseTweaks),
         Ok(MouseTweaksWheel),
@@ -411,6 +430,8 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
         Ok(SortKey),
         Err("Multiplayer"),
         Ok(AutoReconnect),
+        Err("Single player"),
+        Ok(AutoMlg),
     ]
 }
 impl Item {
@@ -419,7 +440,9 @@ impl Item {
             Item::Fullbright => "Fullbright",
             Item::DynamicLights => "Dynamic lights",
             Item::OwnNameTag => "Own name tag",
+            Item::AnimatedCape => "Animated cape",
             Item::AutoReconnect => "Auto-reconnect",
+            Item::AutoMlg => "Auto water bucket",
             Item::MouseTweaks => "Mouse Tweaks controls",
             Item::MouseTweaksWheel => "Scroll wheel moves items",
             Item::Sort => "Sort buttons",
@@ -435,8 +458,8 @@ impl Item {
         Some(match self {
             MouseTweaksWheel => MouseTweaks,
             SortKey => Sort,
-            Fullbright | DynamicLights | OwnNameTag | MouseTweaks | Sort | AutoReconnect | NoAi
-            | AgentControl | DiscordPresence => {
+            Fullbright | DynamicLights | OwnNameTag | AnimatedCape | MouseTweaks | Sort
+            | AutoReconnect | AutoMlg | NoAi | AgentControl | DiscordPresence => {
                 return None;
             }
         })
@@ -451,8 +474,14 @@ impl Item {
             Item::OwnNameTag => {
                 "Shows your name above your head in third person, as other players see it. Hidden when the server hides your team's names or you're invisible."
             }
+            Item::AnimatedCape => {
+                "A cape from your own clip, playing frame by frame in third person. Only you see it."
+            }
             Item::AutoReconnect => {
                 "Rejoins a server after a lost connection or a restart, never after a kick or ban."
+            }
+            Item::AutoMlg => {
+                "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time. Single player only, never on servers."
             }
             Item::MouseTweaks => {
                 "Right-drag places one per slot, left-drag gathers the held item, Shift + left-drag moves every slot."
@@ -483,9 +512,8 @@ impl Item {
         match self {
             Item::Fullbright => Some(Cost::None),
             Item::DynamicLights => Some(Cost::Low),
-            Item::OwnNameTag | Item::AutoReconnect | Item::MouseTweaks | Item::Sort => {
-                Some(Cost::None)
-            }
+            Item::OwnNameTag | Item::AnimatedCape | Item::AutoReconnect | Item::AutoMlg
+            | Item::MouseTweaks | Item::Sort => Some(Cost::None),
             _ => None,
         }
     }
@@ -496,6 +524,7 @@ impl Item {
             Item::DynamicLights => e.dynamic_lights,
             Item::OwnNameTag => e.own_name_tag,
             Item::AutoReconnect => e.auto_reconnect,
+            Item::AutoMlg => e.auto_mlg,
             Item::MouseTweaks => e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel,
             Item::Sort => e.sort,
@@ -509,6 +538,7 @@ impl Item {
     pub fn value(self, e: &Extras) -> String {
         match self {
             Item::SortKey => crate::keybinds::display_name(&e.sort_key).plain(),
+            Item::AnimatedCape => crate::animated_cape::label(e.animated_cape).into(),
             other => match other.switch(e) {
                 Some(true) => "On".into(),
                 _ => "Off".into(),
@@ -522,7 +552,11 @@ impl Item {
             Item::Fullbright => e.fullbright = !e.fullbright,
             Item::DynamicLights => e.dynamic_lights = !e.dynamic_lights,
             Item::OwnNameTag => e.own_name_tag = !e.own_name_tag,
+            Item::AnimatedCape => {
+                e.animated_cape = (e.animated_cape + 1) % (crate::animated_cape::CHOICES.len() as u8 + 1)
+            }
             Item::AutoReconnect => e.auto_reconnect = !e.auto_reconnect,
+            Item::AutoMlg => e.auto_mlg = !e.auto_mlg,
             Item::MouseTweaks => e.mouse_tweaks = !e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel = !e.mouse_tweaks_wheel,
             Item::Sort => e.sort = !e.sort,
@@ -551,6 +585,7 @@ mod tests {
         assert!(!d.fullbright && !d.dynamic_lights);
         assert!(!d.zoom && !d.fps && !d.keystrokes && !d.minimap && !d.auto_reconnect);
         assert!(!d.mouse_tweaks && !d.sort && !d.own_name_tag);
+        assert!(!d.auto_mlg && d.animated_cape == 0);
         assert!(d.discord_presence);
         assert_eq!(Extras::parse(""), d);
         assert_eq!(Extras::parse(&d.serialize()), d);
@@ -581,6 +616,8 @@ mod tests {
         e.sort = true;
         e.sort_key = "key.keyboard.r".into();
         e.discord_presence = false;
+        e.animated_cape = 2;
+        e.auto_mlg = true;
         assert_eq!(Extras::parse(&e.serialize()), e);
     }
 

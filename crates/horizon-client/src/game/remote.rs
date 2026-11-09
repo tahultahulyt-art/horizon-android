@@ -4925,6 +4925,27 @@ impl Game<'_> {
             }
             capes.insert(local, OFFLINE.into());
         }
+        // The Extras page's animated cape (default off) replaces the local
+        // cape for this viewer only: every frame is an atlas sprite, and the
+        // renderer cycles them under the marker sprite's name.
+        if !horizon_client::skins::appearance::current().is_some_and(|a| a.hide_cape)
+            && let Some(choice) =
+                horizon_client::animated_cape::selected(self.settings.extras.animated_cape)
+            && let Some(frames) = horizon_client::animated_cape::frame_textures(choice)
+        {
+            for (i, rgba) in frames.iter().enumerate() {
+                let sprite = horizon_client::animated_cape::frame_sprite(choice, i);
+                if !self.skin_slots.contains(&sprite) || !self.gui.atlas.sprites.contains_key(&sprite)
+                {
+                    self.store_skin(sprite, rgba.clone());
+                }
+            }
+            let marker = horizon_client::animated_cape::marker(choice);
+            if !self.skin_slots.contains(&marker) || !self.gui.atlas.sprites.contains_key(&marker) {
+                self.store_skin(marker.clone(), frames[0].clone());
+            }
+            capes.insert(local, marker);
+        }
         // PlayerInfo.getSkin: the downloaded skin and its model, else the
         // profile's default skin (DefaultPlayerSkin.get), slim or wide.
         let skin_of = |skins: &HashMap<u128, String>, uuid: u128| match skins.get(&uuid) {
@@ -5801,7 +5822,9 @@ impl Game<'_> {
         // jump for this tick: the server's prediction plays the jump from it. Sent as held, the jump
         // was the client's alone, and the server saw a jump its keys didn't allow.
         let auto_jumped = self.player.as_ref().is_some_and(|p| p.was_auto_jump);
+        self.auto_mlg_prepare();
         self.remote_send_state(input | u8::from(auto_jumped) << 4);
+        self.auto_mlg_fire();
         Ok(())
     }
 
@@ -6495,6 +6518,88 @@ impl Game<'_> {
         }
     }
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
+    /// The Extras "Auto water bucket" switch (default off), single player
+    /// only: a fall that would hurt, landing within reach, with a water
+    /// bucket in the hotbar. Selects the bucket so this tick's
+    /// `SetCarriedItem` goes out before `auto_mlg_fire`'s click.
+    fn auto_mlg_prepare(&mut self) {
+        self.auto_mlg.pending = None;
+        if self.auto_mlg.cooldown > 0 {
+            self.auto_mlg.cooldown -= 1;
+            return;
+        }
+        if !self.settings.extras.auto_mlg || self.integrated.is_none() || self.spectator() {
+            return;
+        }
+        let Some(p) = self.player.as_ref() else {
+            return;
+        };
+        if p.ground.on_ground || p.velocity.y >= 0.0 || p.flying {
+            return;
+        }
+        let x = (p.position.x + p.velocity.x).floor() as i32;
+        let z = (p.position.z + p.velocity.z).floor() as i32;
+        let feet = p.position.y.floor() as i32;
+        let facts = self.res.facts();
+        // The ground below, up to 8 blocks down: its top cell must be free
+        // for the water.
+        let mut ground = None;
+        for y in (feet - 8..feet).rev() {
+            let f = facts.get(self.world.block(x, y, z));
+            if f.full_collision {
+                let above = facts.get(self.world.block(x, y + 1, z));
+                if !above.full_collision && above.fluid == horizon_client::blocks::Fluid::None {
+                    ground = Some(y);
+                }
+                break;
+            }
+        }
+        let Some(ground) = ground else {
+            return;
+        };
+        // LivingEntity.checkFallDamage: under safe_fall_distance nothing hurts.
+        let remaining = p.position.y - f64::from(ground + 1);
+        if remaining <= 0.0 || p.fall_distance + remaining <= 3.0 {
+            return;
+        }
+        // Fire when the next move lands (or the tick after): the water needs
+        // the round trip before the landing tick.
+        if remaining > -p.velocity.y * 1.5 {
+            return;
+        }
+        let bucket = (0..9).find(|&slot| {
+            self.stack_in(slot)
+                .is_some_and(|s| &*s.item == "minecraft:water_bucket")
+        });
+        let Some(bucket) = bucket else {
+            return;
+        };
+        let restore = self.selected;
+        self.selected = bucket;
+        self.auto_mlg.pending = Some(([x, ground, z], restore));
+    }
+    /// `auto_mlg_prepare`'s click: `MultiPlayerGameMode.useItemOn` with the
+    /// bucket on the ground block's top face, then the hotbar slot back.
+    fn auto_mlg_fire(&mut self) {
+        let Some((pos, restore)) = self.auto_mlg.pending.take() else {
+            return;
+        };
+        let sequence = self.next_sequence();
+        self.send(S::UseItemOn(play::UseItemOn {
+            hand: hand_id(Hand::Main),
+            pos,
+            face: 1,
+            cursor: [0.5, 1.0, 0.5],
+            inside: false,
+            world_border: false,
+            sequence,
+        }));
+        self.with_hand(Hand::Main, Game::swing_arm);
+        self.selected = restore;
+        // A wait, so a bucket that came back empty doesn't scoop the placed
+        // water up again on the next tick.
+        self.auto_mlg.cooldown = 20;
+    }
     fn remote_send_state(&mut self, input: u8) {
         let Some(p) = self.player.as_ref() else {
             return;
