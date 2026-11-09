@@ -78,29 +78,6 @@ const KEYS: [(&str, KeyCode); 28] = [
     ("F3+T", KeyCode::KeyT),
 ];
 
-// Same reference coordinates and shared draw/hit rectangles as the gameplay layout.
-// MOUSE selects relative pointer input for menus; it does not unlock the world camera.
-fn boxed_utilities(w: f32, h: f32) -> [([f32; 4], &'static str, bool); 2] {
-    let unit = (h / 719.0).min(w / 1598.0);
-    [
-        (
-            [
-                w * 450.0 / 1598.0 - 90.0 * unit,
-                100.0 * h / 719.0 - 33.0 * unit,
-                180.0 * unit,
-                66.0 * unit,
-            ],
-            "INPUT",
-            false,
-        ),
-        (
-            [w - 200.0 * unit, 0.0, 200.0 * unit, 67.0 * unit],
-            "MOUSE",
-            true,
-        ),
-    ]
-}
-
 // Shared draw/hit rectangles: utility-style buttons at the lower right.
 fn mouse_button_rects(w: f32, h: f32) -> [([f32; 4], bool); 2] {
     [
@@ -348,20 +325,6 @@ impl TouchUi {
         }
     }
     pub fn action(&self, w: f32, h: f32, p: [f32; 2], menu: bool) -> Option<Action> {
-        if !menu {
-            return boxed_utilities(w, h)
-                .into_iter()
-                .find_map(|(rect, _, mouse)| {
-                    let [x, y, rw, rh] = rect;
-                    ((x..x + rw).contains(&p[0]) && (y..y + rh).contains(&p[1])).then_some(
-                        if mouse {
-                            Action::VirtualMouse
-                        } else {
-                            Action::Keyboard
-                        },
-                    )
-                });
-        }
         if menu && self.virtual_mouse {
             for ([x, y, width, height], right) in mouse_button_rects(w, h) {
                 if (x..x + width).contains(&p[0]) && (y..y + height).contains(&p[1]) {
@@ -406,24 +369,6 @@ impl TouchUi {
         None
     }
     pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas, menu: bool) {
-        if !menu {
-            for ([x, y, w, h], label, _) in boxed_utilities(b.width, b.height) {
-                b.fill(a, x, y, w, h, rgba(14, 14, 14, 217));
-                let width = HudBatch::text_width(a, label);
-                let start = b.vertices.len();
-                b.text(
-                    a,
-                    label,
-                    x + (w - width) / 2.0,
-                    y + h / 2.0 - 4.0,
-                    rgba(255, 255, 255, 217),
-                    false,
-                );
-                let scale = ((w - 6.0).max(1.0) / width.max(1.0)).min(h * 0.42 / 8.0);
-                b.scale_since(start, x + w / 2.0, y + h / 2.0, scale, scale);
-            }
-            return;
-        }
         for (label, x, width) in [
             ("...", 3.0, 33.0),
             ("F3", 39.0, 33.0),

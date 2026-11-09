@@ -16,7 +16,6 @@ again restores vanilla's behaviour completely.
 | Minimap colours, tiles and image (for the Minimap native mod) | `crates/horizon-client-render/src/minimap.rs` |
 | Reconnect policy and backoff | `crates/horizon-client/src/reconnect.rs` |
 | Game glue (input hooks, per-frame update) | `crates/horizon-client/src/game/extras.rs` |
-| Animated cape frames and cycle | `crates/horizon-client-render/src/animated_cape.rs` (unit tested) |
 | Mouse Tweaks-style controls, sort buttons | `crates/horizon-client/src/game/tweaks.rs` |
 | Sort order and its clicks | `crates/horizon-client/src/inv_sort.rs` (pure, unit tested) |
 | The settings page | `options_ui.rs` (`Page::Extras`): **Options → Horizon Settings... → Extras...** |
@@ -88,19 +87,6 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
 - Hidden in first person, while sleeping, in spectator mode, while invisible, and
   whenever the team's name tag visibility would hide it, exactly as the other
   players' tags (`game/names.rs`, `own_name_tag`). Client-only: nothing is sent.
-
-### Animated cape (`animatedCape`, default off)
-- A cape from a clip the player picked, playing frame by frame on their own
-  player model in third person. The setting cycles Off and the bundled capes.
-- Each cape is a vertical strip of 64x32 frames compiled in
-  (`animated_cape/`, front and mirrored back laid out as a vanilla cape's);
-  `update_remote_skins` keeps every frame in the skin atlas under
-  `capes/anim/{cape}/{frame}` and gives the local player a marker sprite the
-  renderer swaps for the current frame at 10 frames per second
-  (`game/perspective.rs`, `player_cape_geometry`).
-- Client-only: nothing is sent or shown to other players, and a cape texture
-  is 10x16 pixels at most, so a clip reads as a rough animation, not detail.
-- Off: no frames enter the atlas and the cape is exactly what it was.
 
 ### Auto water bucket (`autoMlg`, default off)
 - About to land a fall that would hurt (fall distance plus height to the

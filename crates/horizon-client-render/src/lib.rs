@@ -3,7 +3,6 @@
 #![forbid(unsafe_code)]
 pub mod android_gamepad;
 pub mod android_runtime;
-pub mod animated_cape;
 pub mod assets;
 pub mod atlas_sources;
 pub mod audio;

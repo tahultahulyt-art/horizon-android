@@ -4925,27 +4925,6 @@ impl Game<'_> {
             }
             capes.insert(local, OFFLINE.into());
         }
-        // The Extras page's animated cape (default off) replaces the local
-        // cape for this viewer only: every frame is an atlas sprite, and the
-        // renderer cycles them under the marker sprite's name.
-        if !horizon_client::skins::appearance::current().is_some_and(|a| a.hide_cape)
-            && let Some(choice) =
-                horizon_client::animated_cape::selected(self.settings.extras.animated_cape)
-            && let Some(frames) = horizon_client::animated_cape::frame_textures(choice)
-        {
-            for (i, rgba) in frames.iter().enumerate() {
-                let sprite = horizon_client::animated_cape::frame_sprite(choice, i);
-                if !self.skin_slots.contains(&sprite) || !self.gui.atlas.sprites.contains_key(&sprite)
-                {
-                    self.store_skin(sprite, rgba.clone());
-                }
-            }
-            let marker = horizon_client::animated_cape::marker(choice);
-            if !self.skin_slots.contains(&marker) || !self.gui.atlas.sprites.contains_key(&marker) {
-                self.store_skin(marker.clone(), frames[0].clone());
-            }
-            capes.insert(local, marker);
-        }
         // PlayerInfo.getSkin: the downloaded skin and its model, else the
         // profile's default skin (DefaultPlayerSkin.get), slim or wide.
         let skin_of = |skins: &HashMap<u128, String>, uuid: u128| match skins.get(&uuid) {

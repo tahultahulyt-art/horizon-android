@@ -906,19 +906,11 @@ impl Game<'_> {
         light: u32,
         out: &mut Vec<horizon_client::mesher::Vertex>,
     ) {
-        // An animated cape's marker resolves to the frame showing now.
-        let Some(rect) = m.cape.as_deref().and_then(|c| {
-            match horizon_client::animated_cape::frame_for(c, self.started.elapsed().as_secs_f64())
-            {
-                Some(frame) => self
-                    .gui
-                    .atlas
-                    .sprites
-                    .get(&frame)
-                    .or_else(|| self.gui.atlas.sprites.get(c)),
-                None => self.gui.atlas.sprites.get(c),
-            }
-        }) else {
+        let Some(rect) = m
+            .cape
+            .as_deref()
+            .and_then(|c| self.gui.atlas.sprites.get(c))
+        else {
             return;
         };
         if horizon_client::mobs::trader::is_invisible(m) {
