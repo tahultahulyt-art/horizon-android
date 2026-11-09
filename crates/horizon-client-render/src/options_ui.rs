@@ -2781,30 +2781,11 @@ impl OptionsUi {
                     button(
                         0.0,
                         0.0,
-                        if cfg!(target_os = "android") {
-                            150.0
-                        } else {
-                            310.0
-                        },
+                        310.0,
                         Text::literal("Controller Settings..."),
                         Act::Push(Page::Controller),
                     ),
-                    {
-                        #[cfg(target_os = "android")]
-                        {
-                            Some(button(
-                                0.0,
-                                0.0,
-                                150.0,
-                                Text::literal("Touch Controls..."),
-                                Act::Push(Page::Touch),
-                            ))
-                        }
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            None
-                        }
-                    },
+                    None,
                 ));
                 self.filter_option_rows(rows)
             }
