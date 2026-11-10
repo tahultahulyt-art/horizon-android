@@ -91,14 +91,17 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
 ### Auto water bucket (`autoMlg`, default off)
 - About to land a fall that would hurt (fall distance plus height to the
   ground over the safe 3 blocks), with a water bucket in the hotbar and solid
-  ground within 8 blocks below with a free cell on top: the game selects the
-  bucket for a tick, uses it looking straight down
-  (`MultiPlayerGameMode.useItem`; BucketItem has no useOn, so a block click
-  never empties one, and the server's own ray trace has to find the ground),
-  swings and selects the previous slot back (`game/remote.rs`,
+  ground below with a free cell on top: on the last tick before the landing,
+  the game selects the bucket for a tick, uses it aimed at the ground under
+  the landing (`MultiPlayerGameMode.useItem`; BucketItem has no useOn, so a
+  block click never empties one, and the server's own ray trace has to find
+  the ground), swings and selects the previous slot back (`game/remote.rs`,
   `auto_mlg_prepare`/`auto_mlg_fire`).
-- The ground scan reaches two ticks of fall ahead (at least 8 blocks), so
-  very fast falls are still caught in time.
+    /// The placement's tick: the hotbar slot to restore, the extra position
+    /// a too-far fall first walks the server down to, and the eye and target
+    /// the use aims along.
+    pending: Option<(usize, Option<[f64; 3]>, [f64; 3], [f64; 3])>,
+    cooldown: u32,
 - Once landed by the placed water, the empty bucket that came back scoops it
   up again (the same use packet, aimed at the water cell, within the vanilla
   reach). Falling far again first, turning the setting off, walking out of
@@ -107,19 +110,6 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
   on remote servers: it sends use packets with an aimed look, which public
   servers' anti-cheats can flag.
 - Off: no packets, no slot change, vanilla falls.
-
-### Auto strafe (`autoStrafe`, default off)
-- With the setting on and the forward key held, the game presses left and
-  right in turn by itself, 3 ticks a side: the sword-combo weave from the
-  extras page. Aim, attack and every other key stay the player's; standing
-  still, backing up or the player's own strafe key pauses the weave, and it
-  restarts on the next forward tick (`game/remote.rs`, `auto_strafe_apply`).
-- The setting cycles Off / Single player / Everywhere. Everywhere also runs
-  on remote servers: the strafe keys go in the same input the server hears,
-  so the move is consistent for it, but public servers' rules can still ban
-  assisted movement. Single player also rewrites a stick's analog move
-  vector, since that overrides the key flags (`Keys::direction`).
-- Off: no key changes, vanilla movement.
 
 ### Auto-reconnect (`autoReconnect`, default off)
 - On the "Connection lost" screen after a multiplayer connection drops, a

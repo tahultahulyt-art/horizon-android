@@ -2102,7 +2102,10 @@ struct WorldIcon {
 /// hotbar slot to restore after the bucket's tick, and a retry wait in ticks.
 #[derive(Default)]
 struct AutoMlg {
-    pending: Option<usize>,
+    /// The placement's tick: the hotbar slot to restore, the extra position
+    /// a too-far fall first walks the server down to, and the eye and target
+    /// the use aims along.
+    pending: Option<(usize, Option<[f64; 3]>, [f64; 3], [f64; 3])>,
     cooldown: u32,
     /// The water cell a placement put down, to pick back up once landed.
     placed: Option<[i32; 3]>,
@@ -2111,14 +2114,6 @@ struct AutoMlg {
     placed_ticks: u16,
     /// The pickup's hotbar slot to restore after its tick, and the cell.
     pending_pickup: Option<(usize, [i32; 3])>,
-}
-
-/// The extras "Auto strafe" state (`game/remote.rs`'s auto_strafe_apply):
-/// ticks left on the weave's current side, and which side that is.
-#[derive(Default)]
-struct AutoStrafe {
-    ticks: u8,
-    left: bool,
 }
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
@@ -2471,8 +2466,6 @@ struct Game<'a> {
     settings: Settings,
     /// The extras "Auto water bucket" (`game/remote.rs`'s auto_mlg_*).
     auto_mlg: AutoMlg,
-    /// The extras "Auto strafe" (`game/remote.rs`'s auto_strafe_apply).
-    auto_strafe: AutoStrafe,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -18262,7 +18255,6 @@ impl<'a> Game<'a> {
             hand_strength: Default::default(),
             settings,
             auto_mlg: AutoMlg::default(),
-            auto_strafe: AutoStrafe::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,

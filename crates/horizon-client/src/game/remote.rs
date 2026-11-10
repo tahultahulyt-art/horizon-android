@@ -652,10 +652,6 @@ const BACKLOG_LIMIT: Duration = Duration::from_millis(50);
 /// columns (the packet names no `MenuType`).
 const MOUNT_MENU: &str = "horizon:mount";
 
-/// Ticks the extras "Auto strafe" weave holds one side before swapping:
-/// 3 at 20 ticks a second is a fast combo weave, not a slow arc.
-const STRAFE_SIDE_TICKS: u8 = 3;
-
 fn face_direction(face: [i32; 3]) -> u8 {
     match face {
         [0, -1, 0] => 0,
@@ -5583,9 +5579,6 @@ impl Game<'_> {
         if self.integrated.is_none() && self.server_address().is_some() {
             keys.analog = None;
         }
-        // The extras "Auto strafe" switch, before the input byte so the
-        // server hears the same keys this client moves with.
-        self.auto_strafe_apply(&mut keys);
         let input = u8::from(keys.forward)
             | u8::from(keys.backward) << 1
             | u8::from(keys.left) << 2
@@ -6503,38 +6496,6 @@ impl Game<'_> {
             self.particles.add(&options, p, v);
         }
     }
-    /// The Extras "Auto strafe" switch (default off; 1 is single player
-    /// only, 2 servers too): with it on and the forward key held (and no
-    /// strafe key of the player's own), press left and right in turn,
-    /// `STRAFE_SIDE_TICKS` ticks a side. Anything else (standing still,
-    /// backing up, the player's own strafe) leaves the keys alone and
-    /// restarts the weave.
-    fn auto_strafe_apply(&mut self, keys: &mut Keys) {
-        // 1 is single player only; 2 runs on servers too.
-        let mode = self.settings.extras.auto_strafe;
-        let weaving = mode != 0
-            && (mode == 2 || self.integrated.is_some())
-            && !self.spectator()
-            && keys.forward
-            && !keys.backward
-            && !keys.left
-            && !keys.right;
-        if !weaving {
-            self.auto_strafe.ticks = 0;
-            return;
-        }
-        if self.auto_strafe.ticks == 0 {
-            self.auto_strafe.left = !self.auto_strafe.left;
-            self.auto_strafe.ticks = STRAFE_SIDE_TICKS;
-        }
-        self.auto_strafe.ticks -= 1;
-        keys.left = self.auto_strafe.left;
-        keys.right = !self.auto_strafe.left;
-        // A stick's analog move vector overrides the flags (`Keys::direction`).
-        if keys.analog.is_some() {
-            keys.analog = Some([if self.auto_strafe.left { 1.0 } else { -1.0 }, 1.0]);
-        }
-    }
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
     /// The Extras "Auto water bucket" switch (default off; 1 is single
     /// player only, 2 servers too): a fall that would hurt, landing within
@@ -6590,11 +6551,53 @@ impl Game<'_> {
         if remaining <= 0.0 || p.fall_distance + remaining <= 3.0 {
             return;
         }
-        // Fire when the next move lands (or the tick after): the water needs
-        // the round trip before the landing tick. Two ticks of slack cover a
-        // remote server's share of it.
-        if remaining > -p.velocity.y * 2.0 {
+        // Fire on the last tick before the landing move: the use packet
+        // reaches the server ahead of that move, and the water is there for
+        // the damage check. An earlier click is not just wasted but misses:
+        // `BucketItem.use`'s ray runs from the eyes only as far as the block
+        // interaction range (4.5), so from higher up it finds no block and
+        // the bucket stays full — two ticks of a fast fall put the eyes past
+        // it every time.
+        if remaining > -p.velocity.y {
             return;
+        }
+        // Aim at the ground under where the next move lands, firing only
+        // while the ray really reaches it (a little slack for the server's
+        // read of the position).
+        let target = [
+            f64::from(x) + 0.5,
+            f64::from(ground + 1),
+            f64::from(z) + 0.5,
+        ];
+        let Some(eye) = self.eye_position() else {
+            return;
+        };
+        let reach2 = |eye: [f64; 3]| {
+            let (dx, dy, dz) = (target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
+            dx * dx + dy * dy + dz * dz <= 4.4 * 4.4
+        };
+        // Still past the ray with the landing one move away (a fall faster
+        // than the reach comes down between ticks): first walk the server a
+        // short way down the fall's own path — a position the fall passes
+        // through anyway a fraction of a tick later, never farther than the
+        // tick's own move — so the use's ray trace is close enough when it
+        // arrives behind it.
+        let mut dip = None;
+        let mut eye = eye;
+        if !reach2(eye) {
+            let y = f64::from(ground + 1) + 2.0;
+            let frac = ((p.position.y - y) / -p.velocity.y).max(0.0);
+            let at = [
+                p.position.x + p.velocity.x * frac,
+                y,
+                p.position.z + p.velocity.z * frac,
+            ];
+            let dipped = [at[0], eye[1] - (p.position.y - y), at[2]];
+            if !reach2(dipped) {
+                return;
+            }
+            dip = Some(at);
+            eye = dipped;
         }
         let bucket = (0..9).find(|&slot| {
             self.stack_in(slot)
@@ -6605,7 +6608,7 @@ impl Game<'_> {
         };
         let restore = self.selected;
         self.selected = bucket;
-        self.auto_mlg.pending = Some(restore);
+        self.auto_mlg.pending = Some((restore, dip, eye, target));
         // Landing picks this water back up (`auto_mlg_pickup_prepare`).
         self.auto_mlg.placed = Some([x, ground + 1, z]);
         self.auto_mlg.placed_ticks = 0;
@@ -6678,22 +6681,31 @@ impl Game<'_> {
     }
     /// `auto_mlg_prepare`'s use: `MultiPlayerGameMode.useItem` with the
     /// bucket (BucketItem has no useOn: a UseItemOn click never empties
-    /// one), looking straight down so the server's own ray trace finds the
-    /// ground below the fall, then the hotbar slot back.
+    /// one), aimed at the ground below the landing so the server's own ray
+    /// trace finds it, then the hotbar slot back.
     fn auto_mlg_fire(&mut self) {
         if self.auto_mlg.pending_pickup.is_some() {
             self.auto_mlg_pickup_fire();
             return;
         }
-        let Some(restore) = self.auto_mlg.pending.take() else {
+        let Some((restore, dip, eye, target)) = self.auto_mlg.pending.take() else {
             return;
         };
+        if let Some(at) = dip {
+            self.send(S::MovePlayerPos(play::MovePlayerPos {
+                x: at[0],
+                y: at[1],
+                z: at[2],
+                flags: 0,
+            }));
+        }
+        let (yaw, pitch) = look_at_rotation(eye, target);
         let sequence = self.next_sequence();
         self.send(S::UseItem(play::UseItem {
             hand: hand_id(Hand::Main),
             sequence,
-            yaw: self.yaw,
-            pitch: 90.0,
+            yaw,
+            pitch,
         }));
         self.with_hand(Hand::Main, Game::swing_arm);
         self.selected = restore;
