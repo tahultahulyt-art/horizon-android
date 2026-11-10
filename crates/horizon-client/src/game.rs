@@ -2104,6 +2104,13 @@ struct WorldIcon {
 struct AutoMlg {
     pending: Option<usize>,
     cooldown: u32,
+    /// The water cell a placement put down, to pick back up once landed.
+    placed: Option<[i32; 3]>,
+    /// Ticks since that placement: the pickup gives up after about two
+    /// seconds and the water stays.
+    placed_ticks: u16,
+    /// The pickup's hotbar slot to restore after its tick, and the cell.
+    pending_pickup: Option<(usize, [i32; 3])>,
 }
 
 /// The extras "Auto strafe" state (`game/remote.rs`'s auto_strafe_apply):

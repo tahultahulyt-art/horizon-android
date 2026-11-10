@@ -486,7 +486,7 @@ impl Item {
                 "Rejoins a server after a lost connection or a restart, never after a kick or ban."
             }
             Item::AutoMlg => {
-                "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time. Everywhere also works on servers; public servers can ban for it."
+                "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time and picks it back up once you land. Everywhere also works on servers; public servers can ban for it."
             }
             Item::AutoStrafe => {
                 "While you move forward, strafes left and right by itself for sword combos: you aim and hit, it weaves. Everywhere also works on servers; public servers can ban for it."

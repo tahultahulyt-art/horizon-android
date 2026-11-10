@@ -97,10 +97,15 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
   never empties one, and the server's own ray trace has to find the ground),
   swings and selects the previous slot back (`game/remote.rs`,
   `auto_mlg_prepare`/`auto_mlg_fire`).
+- The ground scan reaches two ticks of fall ahead (at least 8 blocks), so
+  very fast falls are still caught in time.
+- Once landed by the placed water, the empty bucket that came back scoops it
+  up again (the same use packet, aimed at the water cell, within the vanilla
+  reach). Falling far again first, turning the setting off, walking out of
+  reach, or about two seconds passing leaves the water where it is.
 - The setting cycles Off / Single player / Everywhere. Everywhere also runs
-  on remote servers: it sends a use packet with a straight-down look, which
-  public servers' anti-cheats can flag. A placed water is left alone for a
-  second, so an empty bucket coming back doesn't scoop it up again mid-fall.
+  on remote servers: it sends use packets with an aimed look, which public
+  servers' anti-cheats can flag.
 - Off: no packets, no slot change, vanilla falls.
 
 ### Auto strafe (`autoStrafe`, default off)

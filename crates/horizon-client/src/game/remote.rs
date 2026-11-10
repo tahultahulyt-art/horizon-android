@@ -6542,6 +6542,12 @@ impl Game<'_> {
     /// tick's `SetCarriedItem` goes out before `auto_mlg_fire`'s use.
     fn auto_mlg_prepare(&mut self) {
         self.auto_mlg.pending = None;
+        self.auto_mlg.pending_pickup = None;
+        // A placed water comes back first: landing picks it up again.
+        if self.auto_mlg.placed.is_some() {
+            self.auto_mlg_pickup_prepare();
+            return;
+        }
         if self.auto_mlg.cooldown > 0 {
             self.auto_mlg.cooldown -= 1;
             return;
@@ -6561,10 +6567,12 @@ impl Game<'_> {
         let z = (p.position.z + p.velocity.z).floor() as i32;
         let feet = p.position.y.floor() as i32;
         let facts = self.res.facts();
-        // The ground below, up to 8 blocks down: its top cell must be free
-        // for the water.
+        // The ground below: its top cell must be free for the water. The
+        // fire below aims two ticks ahead, so the scan reaches at least that
+        // far; a fixed 8 blocks missed very fast falls entirely.
+        let reach = ((-p.velocity.y * 2.0).ceil() as i32 + 4).clamp(8, 64);
         let mut ground = None;
-        for y in (feet - 8..feet).rev() {
+        for y in (feet - reach..feet).rev() {
             let f = facts.get(self.world.block(x, y, z));
             if f.full_collision {
                 let above = facts.get(self.world.block(x, y + 1, z));
@@ -6598,12 +6606,85 @@ impl Game<'_> {
         let restore = self.selected;
         self.selected = bucket;
         self.auto_mlg.pending = Some(restore);
+        // Landing picks this water back up (`auto_mlg_pickup_prepare`).
+        self.auto_mlg.placed = Some([x, ground + 1, z]);
+        self.auto_mlg.placed_ticks = 0;
+    }
+    /// The pickup half of auto_mlg_prepare, while a placed water waits: once
+    /// the player is on the ground by it with the empty bucket back, select
+    /// the bucket so this tick's `SetCarriedItem` goes out before
+    /// `auto_mlg_pickup_fire`'s use. About two seconds without the landing
+    /// (or the setting turned off) leaves the water where it is.
+    fn auto_mlg_pickup_prepare(&mut self) {
+        let Some(cell) = self.auto_mlg.placed else {
+            return;
+        };
+        self.auto_mlg.placed_ticks += 1;
+        if self.auto_mlg.placed_ticks > 40 {
+            self.auto_mlg.placed = None;
+            return;
+        }
+        // 1 is single player only; 2 runs on servers too.
+        let mode = self.settings.extras.auto_mlg;
+        if mode == 0 || (mode == 1 && self.integrated.is_none()) || self.spectator() {
+            self.auto_mlg.placed = None;
+            return;
+        }
+        let Some(p) = self.player.as_ref() else {
+            return;
+        };
+        if p.flying {
+            return;
+        }
+        // Falling far again before the pickup: drop the scoop so the new
+        // fall's own placement can fire from the next tick.
+        if !p.ground.on_ground {
+            if p.fall_distance > 3.0 {
+                self.auto_mlg.placed = None;
+            }
+            return;
+        }
+        // The placement's water: its block update can lag the landing.
+        let facts = self.res.facts();
+        let cell_facts = facts.get(self.world.block(cell[0], cell[1], cell[2]));
+        if cell_facts.fluid != horizon_client::blocks::Fluid::Water {
+            return;
+        }
+        let Some(eye) = self.eye_position() else {
+            return;
+        };
+        let center = [
+            f64::from(cell[0]) + 0.5,
+            f64::from(cell[1]) + 0.5,
+            f64::from(cell[2]) + 0.5,
+        ];
+        let (dx, dy, dz) = (center[0] - eye[0], center[1] - eye[1], center[2] - eye[2]);
+        // Vanilla's block reach: walked past it, the scoop cannot hit.
+        if dx * dx + dy * dy + dz * dz > 4.5 * 4.5 {
+            self.auto_mlg.placed = None;
+            return;
+        }
+        // The bucket the placement emptied can lag a tick too: retry then.
+        let bucket = (0..9).find(|&slot| {
+            self.stack_in(slot)
+                .is_some_and(|s| &*s.item == "minecraft:bucket")
+        });
+        let Some(bucket) = bucket else {
+            return;
+        };
+        let restore = self.selected;
+        self.selected = bucket;
+        self.auto_mlg.pending_pickup = Some((restore, cell));
     }
     /// `auto_mlg_prepare`'s use: `MultiPlayerGameMode.useItem` with the
     /// bucket (BucketItem has no useOn: a UseItemOn click never empties
     /// one), looking straight down so the server's own ray trace finds the
     /// ground below the fall, then the hotbar slot back.
     fn auto_mlg_fire(&mut self) {
+        if self.auto_mlg.pending_pickup.is_some() {
+            self.auto_mlg_pickup_fire();
+            return;
+        }
         let Some(restore) = self.auto_mlg.pending.take() else {
             return;
         };
@@ -6619,6 +6700,37 @@ impl Game<'_> {
         // A wait, so a bucket that came back empty doesn't scoop the placed
         // water up again on the next tick.
         self.auto_mlg.cooldown = 20;
+    }
+    /// `auto_mlg_pickup_prepare`'s use: `MultiPlayerGameMode.useItem` with
+    /// the empty bucket looking at the placed water, so the server's own
+    /// ray trace scoops it, then the hotbar slot back.
+    fn auto_mlg_pickup_fire(&mut self) {
+        let Some((restore, cell)) = self.auto_mlg.pending_pickup.take() else {
+            return;
+        };
+        let Some(eye) = self.eye_position() else {
+            self.selected = restore;
+            self.auto_mlg.placed = None;
+            return;
+        };
+        let center = [
+            f64::from(cell[0]) + 0.5,
+            f64::from(cell[1]) + 0.5,
+            f64::from(cell[2]) + 0.5,
+        ];
+        let (yaw, pitch) = look_at_rotation(eye, center);
+        let sequence = self.next_sequence();
+        self.send(S::UseItem(play::UseItem {
+            hand: hand_id(Hand::Main),
+            sequence,
+            yaw,
+            pitch,
+        }));
+        self.with_hand(Hand::Main, Game::swing_arm);
+        self.selected = restore;
+        self.auto_mlg.placed = None;
+        // A wait, so the water bucket that came back isn't placed again.
+        self.auto_mlg.cooldown = 10;
     }
     fn remote_send_state(&mut self, input: u8) {
         let Some(p) = self.player.as_ref() else {
