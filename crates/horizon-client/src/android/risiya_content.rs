@@ -3,6 +3,7 @@ use horizon_protocol::servers::{self, ServerEntry};
 use std::path::Path;
 const ADDRESS: &str = "delhi-791455.indernos.in:25565";
 const ADDRESS2: &str = "rahukkez.aternos.me:46509";
+const ADDRESS3: &str = "risiya.progamer.me:34589";
 pub fn seed(home: &Path) -> Result<(), String> {
     std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
     let marker = home.join("risiya-server-offered-v1");
@@ -22,7 +23,8 @@ pub fn seed(home: &Path) -> Result<(), String> {
         }
         std::fs::write(marker, b"1").map_err(|e| e.to_string())?;
     }
-    seed2(home)
+    seed2(home)?;
+    seed3(home)
 }
 /// One-time offer of Rahul's Aternos server (update-safe: own marker, prepend only).
 fn seed2(home: &Path) -> Result<(), String> {
@@ -40,6 +42,28 @@ fn seed2(home: &Path) -> Result<(), String> {
             .any(|s| s.ip.eq_ignore_ascii_case(ADDRESS2))
         {
             servers::prepend(&path, &ServerEntry::new("Rahul's Aternos", ADDRESS2))
+                .map_err(|e| e.to_string())?;
+        }
+        std::fs::write(marker, b"1").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+/// One-time offer of Rahul's PowerupStack server (update-safe: own marker, prepend only).
+fn seed3(home: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
+    let marker = home.join("risiya-server-offered-v3");
+    if !marker.try_exists().map_err(|e| e.to_string())? {
+        let path = home.join("servers.dat");
+        // Only prepend to a valid existing list; don't erase a damaged list.
+        if let Ok(bytes) = std::fs::read(&path) {
+            horizon_world::nbt::read_named(&bytes, horizon_world::nbt::Limits::default())
+                .map_err(|_| "Existing server list is damaged; it was kept".to_string())?;
+        }
+        if !servers::load(&path)
+            .iter()
+            .any(|s| s.ip.eq_ignore_ascii_case(ADDRESS3))
+        {
+            servers::prepend(&path, &ServerEntry::new("Risiya Server", ADDRESS3))
                 .map_err(|e| e.to_string())?;
         }
         std::fs::write(marker, b"1").map_err(|e| e.to_string())?;
@@ -140,6 +164,7 @@ mod tests {
                 .iter()
                 .any(|s| s.ip == ADDRESS2)
         );
+        assert_eq!(servers::load(&p.join("servers.dat"))[0].ip, ADDRESS3);
         assert!(!p.join("shaderpacks/risiya_light").exists());
         servers::save(&p.join("servers.dat"), &[]).unwrap();
         seed(&p).unwrap();
