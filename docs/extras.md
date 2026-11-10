@@ -103,6 +103,19 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
   second, so an empty bucket coming back doesn't scoop it up again mid-fall.
 - Off: no packets, no slot change, vanilla falls.
 
+### Auto strafe (`autoStrafe`, default off)
+- With the setting on and the forward key held, the game presses left and
+  right in turn by itself, 3 ticks a side: the sword-combo weave from the
+  extras page. Aim, attack and every other key stay the player's; standing
+  still, backing up or the player's own strafe key pauses the weave, and it
+  restarts on the next forward tick (`game/remote.rs`, `auto_strafe_apply`).
+- The setting cycles Off / Single player / Everywhere. Everywhere also runs
+  on remote servers: the strafe keys go in the same input the server hears,
+  so the move is consistent for it, but public servers' rules can still ban
+  assisted movement. Single player also rewrites a stick's analog move
+  vector, since that overrides the key flags (`Keys::direction`).
+- Off: no key changes, vanilla movement.
+
 ### Auto-reconnect (`autoReconnect`, default off)
 - On the "Connection lost" screen after a multiplayer connection drops, a
   countdown "Reconnecting in N s" with a Cancel button, then a new connection

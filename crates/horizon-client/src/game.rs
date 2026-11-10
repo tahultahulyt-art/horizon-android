@@ -2105,6 +2105,14 @@ struct AutoMlg {
     pending: Option<usize>,
     cooldown: u32,
 }
+
+/// The extras "Auto strafe" state (`game/remote.rs`'s auto_strafe_apply):
+/// ticks left on the weave's current side, and which side that is.
+#[derive(Default)]
+struct AutoStrafe {
+    ticks: u8,
+    left: bool,
+}
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
     res: Arc<Resources>,
@@ -2456,6 +2464,8 @@ struct Game<'a> {
     settings: Settings,
     /// The extras "Auto water bucket" (`game/remote.rs`'s auto_mlg_*).
     auto_mlg: AutoMlg,
+    /// The extras "Auto strafe" (`game/remote.rs`'s auto_strafe_apply).
+    auto_strafe: AutoStrafe,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -18245,6 +18255,7 @@ impl<'a> Game<'a> {
             hand_strength: Default::default(),
             settings,
             auto_mlg: AutoMlg::default(),
+            auto_strafe: AutoStrafe::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,

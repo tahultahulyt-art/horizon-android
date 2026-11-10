@@ -652,6 +652,10 @@ const BACKLOG_LIMIT: Duration = Duration::from_millis(50);
 /// columns (the packet names no `MenuType`).
 const MOUNT_MENU: &str = "horizon:mount";
 
+/// Ticks the extras "Auto strafe" weave holds one side before swapping:
+/// 3 at 20 ticks a second is a fast combo weave, not a slow arc.
+const STRAFE_SIDE_TICKS: u8 = 3;
+
 fn face_direction(face: [i32; 3]) -> u8 {
     match face {
         [0, -1, 0] => 0,
@@ -5579,6 +5583,9 @@ impl Game<'_> {
         if self.integrated.is_none() && self.server_address().is_some() {
             keys.analog = None;
         }
+        // The extras "Auto strafe" switch, before the input byte so the
+        // server hears the same keys this client moves with.
+        self.auto_strafe_apply(&mut keys);
         let input = u8::from(keys.forward)
             | u8::from(keys.backward) << 1
             | u8::from(keys.left) << 2
@@ -6494,6 +6501,38 @@ impl Game<'_> {
         );
         for (p, v) in spawned {
             self.particles.add(&options, p, v);
+        }
+    }
+    /// The Extras "Auto strafe" switch (default off; 1 is single player
+    /// only, 2 servers too): with it on and the forward key held (and no
+    /// strafe key of the player's own), press left and right in turn,
+    /// `STRAFE_SIDE_TICKS` ticks a side. Anything else (standing still,
+    /// backing up, the player's own strafe) leaves the keys alone and
+    /// restarts the weave.
+    fn auto_strafe_apply(&mut self, keys: &mut Keys) {
+        // 1 is single player only; 2 runs on servers too.
+        let mode = self.settings.extras.auto_strafe;
+        let weaving = mode != 0
+            && (mode == 2 || self.integrated.is_some())
+            && !self.spectator()
+            && keys.forward
+            && !keys.backward
+            && !keys.left
+            && !keys.right;
+        if !weaving {
+            self.auto_strafe.ticks = 0;
+            return;
+        }
+        if self.auto_strafe.ticks == 0 {
+            self.auto_strafe.left = !self.auto_strafe.left;
+            self.auto_strafe.ticks = STRAFE_SIDE_TICKS;
+        }
+        self.auto_strafe.ticks -= 1;
+        keys.left = self.auto_strafe.left;
+        keys.right = !self.auto_strafe.left;
+        // A stick's analog move vector overrides the flags (`Keys::direction`).
+        if keys.analog.is_some() {
+            keys.analog = Some([if self.auto_strafe.left { 1.0 } else { -1.0 }, 1.0]);
         }
     }
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.

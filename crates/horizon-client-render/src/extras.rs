@@ -102,6 +102,9 @@ pub struct Extras {
     /// A water bucket in the hotbar placed below a fall that would hurt:
     /// 0 is off, 1 single player only, 2 servers too (`docs/extras.md`).
     pub auto_mlg: u8,
+    /// Left/right weaving by itself while moving forward, for sword combos:
+    /// 0 is off, 1 single player only, 2 servers too (`docs/extras.md`).
+    pub auto_strafe: u8,
     /// Mouse Tweaks-style drags in the inventory and storage containers.
     pub mouse_tweaks: bool,
     /// With them, the wheel over a slot moves its items one at a time.
@@ -144,6 +147,7 @@ impl Default for Extras {
             auto_reconnect: false,
             own_name_tag: false,
             auto_mlg: 0,
+            auto_strafe: 0,
             mouse_tweaks: false,
             mouse_tweaks_wheel: true,
             sort: false,
@@ -227,6 +231,13 @@ impl Extras {
                         _ => 0,
                     };
                 }
+                "autoStrafe" => {
+                    e.auto_strafe = match value {
+                        "2" => 2,
+                        "1" | "true" => 1,
+                        _ => 0,
+                    };
+                }
                 "mouseTweaks" => e.mouse_tweaks = flag(e.mouse_tweaks),
                 "mouseTweaksWheel" => e.mouse_tweaks_wheel = flag(e.mouse_tweaks_wheel),
                 "sort" => e.sort = flag(e.sort),
@@ -241,7 +252,7 @@ impl Extras {
     }
     pub fn serialize(&self) -> String {
         format!(
-            "fullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nownNameTag:{}\nautoMlg:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\n{}:{}\nagentControl:{}\ndiscordPresence:{}\n",
+            "fullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nownNameTag:{}\nautoMlg:{}\nautoStrafe:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\n{}:{}\nagentControl:{}\ndiscordPresence:{}\n",
             bool_text(self.fullbright),
             bool_text(self.dynamic_lights),
             bool_text(self.zoom),
@@ -269,6 +280,7 @@ impl Extras {
             bool_text(self.auto_reconnect),
             bool_text(self.own_name_tag),
             self.auto_mlg,
+            self.auto_strafe,
             bool_text(self.mouse_tweaks),
             bool_text(self.mouse_tweaks_wheel),
             bool_text(self.sort),
@@ -399,6 +411,7 @@ pub enum Item {
     OwnNameTag,
     AutoReconnect,
     AutoMlg,
+    AutoStrafe,
     MouseTweaks,
     MouseTweaksWheel,
     Sort,
@@ -426,6 +439,7 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
         Err("Multiplayer"),
         Ok(AutoReconnect),
         Ok(AutoMlg),
+        Ok(AutoStrafe),
     ]
 }
 impl Item {
@@ -436,6 +450,7 @@ impl Item {
             Item::OwnNameTag => "Own name tag",
             Item::AutoReconnect => "Auto-reconnect",
             Item::AutoMlg => "Auto water bucket",
+            Item::AutoStrafe => "Auto strafe",
             Item::MouseTweaks => "Mouse Tweaks controls",
             Item::MouseTweaksWheel => "Scroll wheel moves items",
             Item::Sort => "Sort buttons",
@@ -452,7 +467,7 @@ impl Item {
             MouseTweaksWheel => MouseTweaks,
             SortKey => Sort,
             Fullbright | DynamicLights | OwnNameTag | MouseTweaks | Sort
-            | AutoReconnect | AutoMlg | NoAi | AgentControl | DiscordPresence => {
+            | AutoReconnect | AutoMlg | AutoStrafe | NoAi | AgentControl | DiscordPresence => {
                 return None;
             }
         })
@@ -472,6 +487,9 @@ impl Item {
             }
             Item::AutoMlg => {
                 "About to land a fall that would hurt, with a water bucket in the hotbar: places the water below you just in time. Everywhere also works on servers; public servers can ban for it."
+            }
+            Item::AutoStrafe => {
+                "While you move forward, strafes left and right by itself for sword combos: you aim and hit, it weaves. Everywhere also works on servers; public servers can ban for it."
             }
             Item::MouseTweaks => {
                 "Right-drag places one per slot, left-drag gathers the held item, Shift + left-drag moves every slot."
@@ -502,7 +520,7 @@ impl Item {
         match self {
             Item::Fullbright => Some(Cost::None),
             Item::DynamicLights => Some(Cost::Low),
-            Item::OwnNameTag | Item::AutoReconnect | Item::AutoMlg
+            Item::OwnNameTag | Item::AutoReconnect | Item::AutoMlg | Item::AutoStrafe
             | Item::MouseTweaks | Item::Sort => Some(Cost::None),
             _ => None,
         }
@@ -515,6 +533,7 @@ impl Item {
             Item::OwnNameTag => e.own_name_tag,
             Item::AutoReconnect => e.auto_reconnect,
             Item::AutoMlg => e.auto_mlg != 0,
+            Item::AutoStrafe => e.auto_strafe != 0,
             Item::MouseTweaks => e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel,
             Item::Sort => e.sort,
@@ -529,6 +548,9 @@ impl Item {
         match self {
             Item::SortKey => crate::keybinds::display_name(&e.sort_key).plain(),
             Item::AutoMlg => ["Off", "Single player", "Everywhere"][e.auto_mlg.min(2) as usize].into(),
+            Item::AutoStrafe => {
+                ["Off", "Single player", "Everywhere"][e.auto_strafe.min(2) as usize].into()
+            }
             other => match other.switch(e) {
                 Some(true) => "On".into(),
                 _ => "Off".into(),
@@ -544,6 +566,7 @@ impl Item {
             Item::OwnNameTag => e.own_name_tag = !e.own_name_tag,
             Item::AutoReconnect => e.auto_reconnect = !e.auto_reconnect,
             Item::AutoMlg => e.auto_mlg = (e.auto_mlg + 1) % 3,
+            Item::AutoStrafe => e.auto_strafe = (e.auto_strafe + 1) % 3,
             Item::MouseTweaks => e.mouse_tweaks = !e.mouse_tweaks,
             Item::MouseTweaksWheel => e.mouse_tweaks_wheel = !e.mouse_tweaks_wheel,
             Item::Sort => e.sort = !e.sort,
@@ -573,6 +596,7 @@ mod tests {
         assert!(!d.zoom && !d.fps && !d.keystrokes && !d.minimap && !d.auto_reconnect);
         assert!(!d.mouse_tweaks && !d.sort && !d.own_name_tag);
         assert!(d.auto_mlg == 0);
+        assert!(d.auto_strafe == 0);
         assert!(d.discord_presence);
         assert_eq!(Extras::parse(""), d);
         assert_eq!(Extras::parse(&d.serialize()), d);
@@ -604,6 +628,7 @@ mod tests {
         e.sort_key = "key.keyboard.r".into();
         e.discord_presence = false;
         e.auto_mlg = 2;
+        e.auto_strafe = 2;
         assert_eq!(Extras::parse(&e.serialize()), e);
     }
 
