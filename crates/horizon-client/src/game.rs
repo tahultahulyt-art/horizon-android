@@ -2106,13 +2106,7 @@ struct AutoMlg {
     /// target the use aims along.
     pending: Option<(usize, [f64; 3], [f64; 3])>,
     cooldown: u32,
-    /// The water cell a placement put down, to pick back up once landed.
-    placed: Option<[i32; 3]>,
-    /// Ticks since that placement: the pickup gives up after about two
-    /// seconds and the water stays.
-    placed_ticks: u16,
-    /// The pickup's hotbar slot to restore after its tick, and the cell.
-    pending_pickup: Option<(usize, [i32; 3])>,
+
 }
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
