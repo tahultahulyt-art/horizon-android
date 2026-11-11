@@ -16402,12 +16402,6 @@ impl Game<'_> {
                         log::warn!("Touch chat: {error}");
                     }
                     self.android_show_keyboard();
-                } else if self.pad.touch.settings_requested {
-                    self.android_release_touch_keys(true);
-                    self.audio.play_button_click();
-                    self.capture(false);
-                    self.open_options_at(false, horizon_client::options_ui::Page::QuickControls);
-                    self.options_to_game = true;
                 } else if std::mem::take(&mut self.pad.touch.debug_requested) {
                     self.audio.play_button_click();
                     if !self.pad.touch_ui.key_held(KeyCode::F3) {
@@ -19797,7 +19791,7 @@ fn start_game<'a>(
     #[cfg(target_os = "android")]
     if crate::OPEN_TOUCH_EDITOR.swap(false, std::sync::atomic::Ordering::AcqRel) {
         game.capture(false);
-        game.open_options_at(true, horizon_client::options_ui::Page::QuickControls);
+        game.open_options_at(true, horizon_client::options_ui::Page::Controls);
         game.pad.touch.open_editor();
     }
     // Benchmarks measure the game alone.

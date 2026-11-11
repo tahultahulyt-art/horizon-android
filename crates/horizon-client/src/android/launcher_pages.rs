@@ -64,10 +64,6 @@ pub(super) enum Action {
     Orientation,
     InputHost,
     ChooseInputHost(crate::catalog::InputHost),
-    QuickControls,
-    TouchValue(chooser::TouchValue),
-    ChooseTouchValue(chooser::TouchValue, u32),
-    EditControls,
     TouchLook,
     ChooseTouchLook(u32),
     ChooseOrientation(crate::catalog::Orientation),
@@ -658,19 +654,6 @@ impl Launcher {
             self.list_view = Some(view);
             self.catalog.scroll = self.catalog.scroll.clamp(0.0, view[2]);
         } else {
-            let touch_pct = {
-                if self.touch_look_cache.is_none() {
-                    let path = self
-                        .catalog
-                        .config
-                        .game_home(&self.home)
-                        .join("horizon-touch.json");
-                    let sensitivity = horizon_client::touch::Settings::load_from(&path).sensitivity;
-                    self.touch_look_cache =
-                        Some((sensitivity * 100.0).round().clamp(10.0, 1000.0) as u32);
-                }
-                self.touch_look_cache.unwrap()
-            };
             let c = &self.catalog.config;
             ui.text(
                 Face::Medium,
@@ -684,18 +667,13 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
-                (
-                    "Quick controls",
-                    format!("Touch sensitivity: {touch_pct}%"),
-                    Action::QuickControls,
-                ),
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
                 (
                     "Client resolution",
@@ -1622,36 +1600,6 @@ impl Launcher {
             }
             Some(Action::Orientation) => self.open_chooser(chooser::Kind::Orientation),
             Some(Action::InputHost) => self.open_chooser(chooser::Kind::InputHost),
-            Some(Action::QuickControls) => self.open_chooser(chooser::Kind::QuickControls),
-            Some(Action::TouchValue(value)) => self.open_chooser(chooser::Kind::TouchValue(value)),
-            Some(Action::ChooseTouchValue(value, percent)) => {
-                let path = self
-                    .catalog
-                    .config
-                    .game_home(&self.home)
-                    .join("horizon-touch.json");
-                let mut touch = horizon_client::touch::Settings::load_from(&path);
-                value.apply(&mut touch, percent);
-                let saved = std::fs::create_dir_all(path.parent().unwrap())
-                    .and_then(|_| touch.save_to(&path));
-                match saved {
-                    Ok(()) => {
-                        self.touch_look_cache = None;
-                        self.catalog.status = format!(
-                            "{} saved: {}",
-                            value.label(),
-                            value.value_label(value.current(&touch))
-                        );
-                    }
-                    Err(e) => self.catalog.status = format!("Could not save controls: {e}"),
-                }
-                self.open_chooser(chooser::Kind::QuickControls);
-            }
-            Some(Action::EditControls) => {
-                self.chooser = None;
-                self.edit_controls_launch = true;
-                self.action(events)?;
-            }
             Some(Action::TouchLook) => self.open_chooser(chooser::Kind::TouchLook),
             Some(Action::ChooseTouchLook(percent)) => {
                 let path = self
@@ -1668,7 +1616,7 @@ impl Launcher {
                 };
                 self.catalog.status = match saved {
                     Ok(()) => format!(
-                        "Touch look speed set to {percent}%. Applies on next Play; fine tune in Options > Controls > Touch Controls."
+                        "Touch look speed set to {percent}%. Applies on next Play."
                     ),
                     Err(error) => format!("Could not save touch controls: {error}"),
                 };

@@ -1502,8 +1502,6 @@ pub enum Page {
     /// Horizon's controller settings and button binds.
     Controller,
     Touch,
-    #[cfg(target_os = "android")]
-    QuickControls,
     PadBinds,
     Extras,
     /// CreditsAndAttributionScreen.
@@ -2470,8 +2468,6 @@ impl OptionsUi {
             Page::PadBinds => "horizon.pages.controller_binds",
             Page::Extras => "horizon.pages.extras",
             Page::Touch => "Touch Controls",
-            #[cfg(target_os = "android")]
-            Page::QuickControls => "Quick controls",
             Page::Credits => "credits_and_attribution.screen.title",
             Page::Horizon => "horizon.pages.settings",
             Page::Agent => "horizon.pages.agent",
@@ -2781,74 +2777,13 @@ impl OptionsUi {
                     button(
                         0.0,
                         0.0,
-                        if cfg!(target_os = "android") {
-                            150.0
-                        } else {
-                            310.0
-                        },
+                        310.0,
                         Text::literal("Controller Settings..."),
                         Act::Push(Page::Controller),
                     ),
-                    {
-                        #[cfg(target_os = "android")]
-                        {
-                            Some(button(
-                                0.0,
-                                0.0,
-                                150.0,
-                                Text::literal("Touch Controls..."),
-                                Act::Push(Page::Touch),
-                            ))
-                        }
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            None
-                        }
-                    },
+                    None,
                 ));
                 self.filter_option_rows(rows)
-            }
-            #[cfg(target_os = "android")]
-            Page::QuickControls => {
-                let mut rows = vec![Row::Buttons(
-                    button(
-                        0.0,
-                        0.0,
-                        310.0,
-                        Text::literal("Edit controls..."),
-                        Act::TouchControls,
-                    ),
-                    None,
-                )];
-                rows.extend(pairs(&[
-                    Opt::TouchControlOpacity,
-                    Opt::TouchSensitivity,
-                    Opt::TouchAimStabilizer,
-                    Opt::TouchAimAssist,
-                    Opt::TouchAimAssistStrength,
-                    Opt::TouchMouseSensitivity,
-                    Opt::TouchCursorScale,
-                    Opt::TouchButtonScale,
-                    Opt::TouchCircleSize,
-                ]));
-                rows.push(Row::Big(Opt::Sensitivity));
-                rows.push(Row::Buttons(
-                    button(
-                        0.0,
-                        0.0,
-                        150.0,
-                        Text::literal("More settings..."),
-                        Act::Push(Page::Main),
-                    ),
-                    Some(button(
-                        0.0,
-                        0.0,
-                        150.0,
-                        Text::literal("Touch settings..."),
-                        Act::Push(Page::Touch),
-                    )),
-                ));
-                rows
             }
             Page::Touch => {
                 let mut rows = vec![Row::Big(Opt::TouchMode)];

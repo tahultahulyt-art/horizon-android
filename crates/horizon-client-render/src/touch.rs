@@ -263,6 +263,11 @@ impl TouchControls {
         self.pending.set(button, true);
     }
     fn visible(&self, c: Control) -> bool {
+        // Retain the saved control slot/layout for compatibility, but remove
+        // the settings gear from both drawing and touch hit-testing.
+        if c == Control::Settings {
+            return false;
+        }
         if c == Control::Shield && !self.shield_available && self.editor.is_none() {
             return false;
         }
@@ -1543,6 +1548,20 @@ mod tests {
         t.update(4, point, false, true);
         assert!(!t.poll_state().held(Button::LeftStick));
     }
+    #[test]
+    fn removed_settings_gear_is_not_drawn_or_hit_tested_without_changing_saved_values() {
+        let mut touch = TouchControls::default();
+        touch.viewport(1920, 1080);
+        touch.settings.button_visibility[Control::Settings as usize] = 1;
+        let before = serde_json::to_value(&touch.settings).unwrap();
+        let point = touch.placement(Control::Settings).center;
+        assert!(!touch.visible(Control::Settings));
+        assert_ne!(touch.control_at(point), Some(Control::Settings));
+        touch.open_editor();
+        assert!(!touch.visible(Control::Settings));
+        assert_eq!(serde_json::to_value(&touch.settings).unwrap(), before);
+    }
+
     #[test]
     fn global_button_scale_changes_hit_geometry_without_rewriting_saved_layouts() {
         let mut touch = TouchControls::default();

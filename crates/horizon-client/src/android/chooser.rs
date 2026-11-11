@@ -17,95 +17,6 @@ pub(super) enum Kind {
     Orientation,
     InputHost,
     TouchLook,
-    QuickControls,
-    TouchValue(TouchValue),
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub(super) enum TouchValue {
-    Opacity,
-    Sensitivity,
-    Stabilizer,
-    Assist,
-    AssistStrength,
-    Mouse,
-    Cursor,
-    Buttons,
-    Circle,
-}
-impl TouchValue {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Opacity => "Control opacity",
-            Self::Sensitivity => "Touch sensitivity",
-            Self::Stabilizer => "Shield Mode",
-            Self::Assist => "Shield Mode: Target Stick",
-            Self::AssistStrength => "Target Stick strength",
-            Self::Mouse => "Virtual mouse sensitivity",
-            Self::Cursor => "Virtual cursor size",
-            Self::Buttons => "Control button size",
-            Self::Circle => "Touch circle size",
-        }
-    }
-    pub fn current(self, s: &horizon_client::touch::Settings) -> u32 {
-        (match self {
-            Self::Opacity => s.control_opacity * 100.0,
-            Self::Sensitivity => s.sensitivity * 100.0,
-            Self::AssistStrength => s.aim_assist_strength * 100.0,
-            Self::Assist => {
-                if s.aim_assist {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            Self::Stabilizer => {
-                if s.aim_stabilizer {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            Self::Mouse => s.virtual_mouse_sensitivity * 100.0,
-            Self::Cursor => s.cursor_scale * 100.0,
-            Self::Buttons => s.button_scale * 100.0,
-            Self::Circle => s.circle_size,
-        })
-        .round() as u32
-    }
-    pub fn value_label(self, value: u32) -> String {
-        if matches!(self, Self::Stabilizer | Self::Assist) {
-            return if value == 0 { "Off" } else { "On" }.into();
-        }
-        format!("{value}{}", if self == Self::Circle { " px" } else { "%" })
-    }
-    pub fn presets(self) -> Vec<u32> {
-        match self {
-            Self::Stabilizer | Self::Assist => vec![0, 1],
-            Self::AssistStrength => vec![0, 5, 10, 15, 20, 25, 30],
-            Self::Opacity => (0..=100).step_by(10).collect(),
-            Self::Sensitivity => vec![10, 25, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 1000],
-            Self::Mouse => vec![25, 50, 75, 100, 125, 150, 175, 200, 250, 300],
-            Self::Cursor => vec![50, 75, 100, 125, 150, 175, 200, 250, 300],
-            Self::Buttons => vec![50, 75, 100, 125, 150, 175, 200],
-            Self::Circle => vec![16, 24, 32, 40, 48, 56, 64],
-        }
-    }
-    pub fn apply(self, s: &mut horizon_client::touch::Settings, value: u32) {
-        let v = value as f32 / 100.0;
-        match self {
-            Self::Stabilizer => s.aim_stabilizer = value != 0,
-            Self::Assist => s.aim_assist = value != 0,
-            Self::AssistStrength => s.aim_assist_strength = v,
-            Self::Opacity => s.control_opacity = v,
-            Self::Sensitivity => s.sensitivity = v,
-            Self::Mouse => s.virtual_mouse_sensitivity = v,
-            Self::Cursor => s.cursor_scale = v,
-            Self::Buttons => s.button_scale = v,
-            Self::Circle => s.circle_size = value as f32,
-        }
-        s.sanitize();
-    }
 }
 
 pub(super) struct Chooser {
@@ -235,74 +146,6 @@ impl Launcher {
                     choices,
                 )
             }
-            Kind::QuickControls => {
-                let touch = horizon_client::touch::Settings::load_from(
-                    &c.game_home(&self.home).join("horizon-touch.json"),
-                );
-                let mut choices: Vec<_> = [
-                    TouchValue::Opacity,
-                    TouchValue::Sensitivity,
-                    TouchValue::Stabilizer,
-                    TouchValue::Assist,
-                    TouchValue::AssistStrength,
-                    TouchValue::Mouse,
-                    TouchValue::Cursor,
-                    TouchValue::Buttons,
-                    TouchValue::Circle,
-                ]
-                .into_iter()
-                .map(|v| {
-                    (
-                        v.label().into(),
-                        v.value_label(v.current(&touch)),
-                        Action::TouchValue(v),
-                        false,
-                    )
-                })
-                .collect();
-                choices.insert(
-                    0,
-                    (
-                        "Edit controls".into(),
-                        String::new(),
-                        Action::EditControls,
-                        false,
-                    ),
-                );
-                ("Quick controls", "", choices)
-            }
-            Kind::TouchValue(value) => {
-                let touch = horizon_client::touch::Settings::load_from(
-                    &c.game_home(&self.home).join("horizon-touch.json"),
-                );
-                let current = value.current(&touch);
-                let mut presets = value.presets();
-                if !presets.contains(&current) {
-                    presets.push(current);
-                    presets.sort_unstable();
-                }
-                (
-                    value.label(),
-                    if value == TouchValue::Stabilizer {
-                        "Smooths small touch movements. Adds a small input delay. No target tracking, lock-on or auto-attack. Default off."
-                    } else if matches!(value, TouchValue::Assist | TouchValue::AssistStrength) {
-                        "Requires Shield Mode and crosshair controls. Small automatic corrections near visible other players, only while your finger moves. No attacks or full lock. Strength 0-30%. Default off. Follow server rules; aim assist may be prohibited."
-                    } else {
-                        ""
-                    },
-                    presets
-                        .into_iter()
-                        .map(|p| {
-                            (
-                                value.value_label(p),
-                                String::new(),
-                                Action::ChooseTouchValue(value, p),
-                                p == current,
-                            )
-                        })
-                        .collect(),
-                )
-            }
             Kind::TouchLook => {
                 let current = horizon_client::touch::Settings::load_from(
                     &c.game_home(&self.home).join("horizon-touch.json"),
@@ -311,7 +154,7 @@ impl Launcher {
                 let percent = (current * 100.0).round().clamp(10.0, 1000.0) as u32;
                 (
                     "Touch look speed",
-                    "Camera speed when dragging to look around. Applies on next Play. Fine tune in Options > Controls > Touch Controls; the in-game sliders now reach 1000%.",
+                    "Camera speed when dragging to look around. Applies on next Play.",
                     [100u32, 200, 300, 500, 800, 1000]
                         .into_iter()
                         .map(|p| {
@@ -537,24 +380,5 @@ impl Chooser {
             Action::Dismiss,
             false,
         );
-    }
-}
-
-#[cfg(test)]
-mod quick_value_tests {
-    use super::*;
-    #[test]
-    fn values_share_game_settings_and_preserve_layouts() {
-        let mut s = horizon_client::touch::Settings::default();
-        let before = serde_json::to_value(&s.layouts).unwrap();
-        TouchValue::Opacity.apply(&mut s, 30);
-        TouchValue::Sensitivity.apply(&mut s, 1000);
-        TouchValue::Cursor.apply(&mut s, 250);
-        assert_eq!(TouchValue::Opacity.current(&s), 30);
-        assert_eq!(s.sensitivity, 10.0);
-        assert_eq!(s.cursor_scale, 2.5);
-        assert_eq!(serde_json::to_value(&s.layouts).unwrap(), before);
-        TouchValue::Sensitivity.apply(&mut s, 9000);
-        assert_eq!(s.sensitivity, 10.0);
     }
 }
