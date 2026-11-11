@@ -2102,10 +2102,9 @@ struct WorldIcon {
 /// hotbar slot to restore after the bucket's tick, and a retry wait in ticks.
 #[derive(Default)]
 struct AutoMlg {
-    /// The placement's tick: the hotbar slot to restore, the extra position
-    /// a too-far fall first walks the server down to, and the eye and target
-    /// the use aims along.
-    pending: Option<(usize, Option<[f64; 3]>, [f64; 3], [f64; 3])>,
+    /// The placement's tick: the hotbar slot to restore, and the eye and
+    /// target the use aims along.
+    pending: Option<(usize, [f64; 3], [f64; 3])>,
     cooldown: u32,
     /// The water cell a placement put down, to pick back up once landed.
     placed: Option<[i32; 3]>,

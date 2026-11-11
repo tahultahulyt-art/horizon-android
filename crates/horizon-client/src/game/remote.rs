@@ -6558,10 +6558,7 @@ impl Game<'_> {
         // too late however it is aimed: the water has to already be in the
         // world when the landing tick's fluid phase runs (in water, the fall
         // distance resets and the landing does not hurt — how a hand-played
-        // bucket saves in vanilla). `BucketItem.use`'s ray runs from the
-        // eyes only as far as the block interaction range (4.5), so an
-        // even earlier click finds no block and the bucket stays full; the
-        // dip below covers the gap. Half a tick of slack keeps an
+        // bucket saves in vanilla). Half a tick of slack keeps an
         // accelerating fall's fire tick ahead of its landing tick.
         if remaining > -p.velocity.y * 2.5 {
             return;
@@ -6581,27 +6578,17 @@ impl Game<'_> {
             let (dx, dy, dz) = (target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
             dx * dx + dy * dy + dz * dz <= 4.4 * 4.4
         };
-        // Still past the ray with the landing one or two moves away (a fall
-        // faster than the reach comes down between ticks): first walk the
-        // server a short way down the fall's own path — a position the fall
-        // passes through anyway a tick or two later — so the use's ray
-        // trace is close enough when it arrives behind it.
-        let mut dip = None;
-        let mut eye = eye;
+        // Out of reach this tick: wait for a nearer one, exactly like a
+        // hand-played click. No synthetic position packet ever goes out —
+        // a second position packet inside one ClientTickEnd window is what
+        // vanilla (and this hub) kicks "Invalid move player packet
+        // received" for, and any walked-down position is a movement no
+        // real player makes, so the world/server can tell it apart. The
+        // cost: a terminal-velocity fall whose last reachable tick is
+        // skipped by the tick phasing gets no bucket — the same miss a
+        // real player has clicking that late.
         if !reach2(eye) {
-            let y = f64::from(ground + 1) + 2.0;
-            let frac = ((p.position.y - y) / -p.velocity.y).max(0.0);
-            let at = [
-                p.position.x + p.velocity.x * frac,
-                y,
-                p.position.z + p.velocity.z * frac,
-            ];
-            let dipped = [at[0], eye[1] - (p.position.y - y), at[2]];
-            if !reach2(dipped) {
-                return;
-            }
-            dip = Some(at);
-            eye = dipped;
+            return;
         }
         let bucket = (0..9).find(|&slot| {
             self.stack_in(slot)
@@ -6612,7 +6599,7 @@ impl Game<'_> {
         };
         let restore = self.selected;
         self.selected = bucket;
-        self.auto_mlg.pending = Some((restore, dip, eye, target));
+        self.auto_mlg.pending = Some((restore, eye, target));
         // Landing picks this water back up (`auto_mlg_pickup_prepare`).
         self.auto_mlg.placed = Some([x, ground + 1, z]);
         self.auto_mlg.placed_ticks = 0;
@@ -6686,23 +6673,17 @@ impl Game<'_> {
     /// `auto_mlg_prepare`'s use: `MultiPlayerGameMode.useItem` with the
     /// bucket (BucketItem has no useOn: a UseItemOn click never empties
     /// one), aimed at the ground below the landing so the server's own ray
-    /// trace finds it, then the hotbar slot back.
+    /// trace finds it, then the hotbar slot back. Nothing else goes on the
+    /// wire: behind this tick's one real move the packet stream is
+    /// byte-for-byte what a player's own right-click sends.
     fn auto_mlg_fire(&mut self) {
         if self.auto_mlg.pending_pickup.is_some() {
             self.auto_mlg_pickup_fire();
             return;
         }
-        let Some((restore, dip, eye, target)) = self.auto_mlg.pending.take() else {
+        let Some((restore, eye, target)) = self.auto_mlg.pending.take() else {
             return;
         };
-        if let Some(at) = dip {
-            self.send(S::MovePlayerPos(play::MovePlayerPos {
-                x: at[0],
-                y: at[1],
-                z: at[2],
-                flags: 0,
-            }));
-        }
         let (yaw, pitch) = look_at_rotation(eye, target);
         let sequence = self.next_sequence();
         self.send(S::UseItem(play::UseItem {
