@@ -6529,9 +6529,10 @@ impl Game<'_> {
         let feet = p.position.y.floor() as i32;
         let facts = self.res.facts();
         // The ground below: its top cell must be free for the water. The
-        // fire below aims two ticks ahead, so the scan reaches at least that
-        // far; a fixed 8 blocks missed very fast falls entirely.
-        let reach = ((-p.velocity.y * 2.0).ceil() as i32 + 4).clamp(8, 64);
+        // fire below aims up to two and a half ticks ahead, so the scan
+        // reaches at least that far; a fixed 8 blocks missed very fast falls
+        // entirely.
+        let reach = ((-p.velocity.y * 2.5).ceil() as i32 + 4).clamp(8, 64);
         let mut ground = None;
         for y in (feet - reach..feet).rev() {
             let f = facts.get(self.world.block(x, y, z));
@@ -6551,14 +6552,18 @@ impl Game<'_> {
         if remaining <= 0.0 || p.fall_distance + remaining <= 3.0 {
             return;
         }
-        // Fire on the last tick before the landing move: the use packet
-        // reaches the server ahead of that move, and the water is there for
-        // the damage check. An earlier click is not just wasted but misses:
-        // `BucketItem.use`'s ray runs from the eyes only as far as the block
-        // interaction range (4.5), so from higher up it finds no block and
-        // the bucket stays full — two ticks of a fast fall put the eyes past
-        // it every time.
-        if remaining > -p.velocity.y {
+        // Fire one to two ticks before the landing move, never on it. The
+        // use packet is queued behind this tick's move and the hub defers
+        // uses past the moves it replays for damage, so a same-tick use is
+        // too late however it is aimed: the water has to already be in the
+        // world when the landing tick's fluid phase runs (in water, the fall
+        // distance resets and the landing does not hurt — how a hand-played
+        // bucket saves in vanilla). `BucketItem.use`'s ray runs from the
+        // eyes only as far as the block interaction range (4.5), so an
+        // even earlier click finds no block and the bucket stays full; the
+        // dip below covers the gap. Half a tick of slack keeps an
+        // accelerating fall's fire tick ahead of its landing tick.
+        if remaining > -p.velocity.y * 2.5 {
             return;
         }
         // Aim at the ground under where the next move lands, firing only
@@ -6576,12 +6581,11 @@ impl Game<'_> {
             let (dx, dy, dz) = (target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]);
             dx * dx + dy * dy + dz * dz <= 4.4 * 4.4
         };
-        // Still past the ray with the landing one move away (a fall faster
-        // than the reach comes down between ticks): first walk the server a
-        // short way down the fall's own path — a position the fall passes
-        // through anyway a fraction of a tick later, never farther than the
-        // tick's own move — so the use's ray trace is close enough when it
-        // arrives behind it.
+        // Still past the ray with the landing one or two moves away (a fall
+        // faster than the reach comes down between ticks): first walk the
+        // server a short way down the fall's own path — a position the fall
+        // passes through anyway a tick or two later — so the use's ray
+        // trace is close enough when it arrives behind it.
         let mut dip = None;
         let mut eye = eye;
         if !reach2(eye) {

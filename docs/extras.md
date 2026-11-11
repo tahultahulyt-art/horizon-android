@@ -91,12 +91,16 @@ The game still draws the minimap, for the native mod (`native_minimap` in `nativ
 ### Auto water bucket (`autoMlg`, default off)
 - About to land a fall that would hurt (fall distance plus height to the
   ground over the safe 3 blocks), with a water bucket in the hotbar and solid
-  ground below with a free cell on top: on the last tick before the landing,
-  the game selects the bucket for a tick, uses it aimed at the ground under
-  the landing (`MultiPlayerGameMode.useItem`; BucketItem has no useOn, so a
-  block click never empties one, and the server's own ray trace has to find
-  the ground), swings and selects the previous slot back (`game/remote.rs`,
-  `auto_mlg_prepare`/`auto_mlg_fire`).
+  ground below with a free cell on top: a tick or two before the landing
+  (never the landing tick itself: the hub defers a use behind the moves it
+  replays for fall damage, so the water must already be in the world for the
+  landing tick's fluid phase to reset the fall distance), the game selects
+  the bucket for a tick, uses it aimed at the ground under the landing
+  (`MultiPlayerGameMode.useItem`; BucketItem has no useOn, so a block click
+  never empties one, and the server's own ray trace has to find the ground —
+  a fall faster than the 4.5 reach first walks the server's position a short
+  way down the fall's own path), swings and selects the previous slot back
+  (`game/remote.rs`, `auto_mlg_prepare`/`auto_mlg_fire`).
     /// The placement's tick: the hotbar slot to restore, the extra position
     /// a too-far fall first walks the server down to, and the eye and target
     /// the use aims along.
