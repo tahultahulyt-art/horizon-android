@@ -6499,8 +6499,8 @@ impl Game<'_> {
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
     /// The Extras "Auto water bucket" switch (default off; 1 is single
     /// player only, 2 servers too): a fall that would hurt, landing within
-    /// reach, with a water bucket in the hotbar. Selects the bucket so this
-    /// tick's `SetCarriedItem` goes out before `auto_mlg_fire`'s use.
+    /// reach, only with a water bucket already selected in the main hand.
+    /// Never searches other slots or changes the player's selection.
     fn auto_mlg_prepare(&mut self) {
         self.auto_mlg.pending = None;
         if self.auto_mlg.cooldown > 0 {
@@ -6584,27 +6584,30 @@ impl Game<'_> {
         if !reach2(eye) {
             return;
         }
-        let bucket = (0..9).find(|&slot| {
-            self.stack_in(slot)
-                .is_some_and(|s| &*s.item == "minecraft:water_bucket")
-        });
-        let Some(bucket) = bucket else {
+        if !self.stack_in(self.selected)
+            .is_some_and(|s| &*s.item == "minecraft:water_bucket")
+        {
             return;
-        };
-        let restore = self.selected;
-        self.selected = bucket;
-        self.auto_mlg.pending = Some((restore, eye, target));
+        }
+        self.auto_mlg.pending = Some((self.selected, eye, target));
     }
     /// `auto_mlg_prepare`'s use: `MultiPlayerGameMode.useItem` with the
     /// bucket (BucketItem has no useOn: a UseItemOn click never empties
     /// one), aimed at the ground below the landing so the server's own ray
-    /// trace finds it, then the hotbar slot back. Nothing else goes on the
+    /// trace finds it. The selected slot never changes. Nothing else goes on the
     /// wire: behind this tick's one real move the packet stream is
     /// byte-for-byte what a player's own right-click sends.
     fn auto_mlg_fire(&mut self) {
-        let Some((restore, eye, target)) = self.auto_mlg.pending.take() else {
+        let Some((slot, eye, target)) = self.auto_mlg.pending.take() else {
             return;
         };
+        // Recheck at fire time too: another input must not make this use
+        // a different held item or change the user's selection back.
+        if self.selected != slot || !self.stack_in(self.selected)
+            .is_some_and(|s| &*s.item == "minecraft:water_bucket")
+        {
+            return;
+        }
         let (yaw, pitch) = look_at_rotation(eye, target);
         let sequence = self.next_sequence();
         self.send(S::UseItem(play::UseItem {
@@ -6614,7 +6617,6 @@ impl Game<'_> {
             pitch,
         }));
         self.with_hand(Hand::Main, Game::swing_arm);
-        self.selected = restore;
         // Placement only: leave the water in the world. Refilling the
         // empty bucket is the player's choice, never an automatic use.
         self.auto_mlg.cooldown = 20;

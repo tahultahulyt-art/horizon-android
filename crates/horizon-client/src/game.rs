@@ -2099,10 +2099,10 @@ struct WorldIcon {
 }
 
 /// The extras "Auto water bucket" state (`game/remote.rs`'s auto_mlg_*): the
-/// hotbar slot to restore after the bucket's tick, and a retry wait in ticks.
+/// selected hotbar slot to validate at fire time, and a retry wait in ticks.
 #[derive(Default)]
 struct AutoMlg {
-    /// The placement's tick: the hotbar slot to restore, and the eye and
+    /// The placement's tick: the already-selected hotbar slot, and the eye and
     /// target the use aims along.
     pending: Option<(usize, [f64; 3], [f64; 3])>,
     cooldown: u32,
