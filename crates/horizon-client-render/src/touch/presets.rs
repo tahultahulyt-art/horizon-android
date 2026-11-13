@@ -51,6 +51,7 @@ struct SourceButton {
     fill_color: u32,
     pressed_fill_color: u32,
     text_color: u32,
+    decoration: super::custom::ButtonDecoration,
     toggle: bool,
     swipe: bool,
 }
@@ -71,6 +72,7 @@ fn source_layout(name: &str, aspect: f32) -> Option<SavedLayout> {
             button.fill_color = Some(b.fill_color);
             button.pressed_fill_color = Some(b.pressed_fill_color);
             button.text_color = Some(b.text_color);
+            button.decoration = Some(b.decoration);
             button.shape = b.size[0] / b.size[1].max(0.01);
             let width = (b.size[0] / aspect).min(1.0);
             let height = b.size[1].min(1.0);
