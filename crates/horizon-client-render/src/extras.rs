@@ -425,7 +425,6 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
         Ok(SortKey),
         Err("Multiplayer"),
         Ok(AutoReconnect),
-        Ok(AutoMlg),
     ]
 }
 impl Item {
