@@ -6,11 +6,32 @@ use serde::{Deserialize, Serialize};
 pub struct CustomButton {
     pub key: String,
     pub layouts: [Placement; 3],
+    #[serde(default)]
+    pub caption: String,
+    #[serde(default = "square_shape")]
+    pub shape: f32,
+    #[serde(default)]
+    pub toggle: bool,
+    #[serde(default)]
+    pub swipe: bool,
+    #[serde(default)]
+    pub fill_color: Option<u32>,
+    #[serde(default)]
+    pub pressed_fill_color: Option<u32>,
+    #[serde(default)]
+    pub text_color: Option<u32>,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
         Self {
             key,
+            caption: String::new(),
+            shape: 1.0,
+            toggle: false,
+            swipe: false,
+            fill_color: None,
+            pressed_fill_color: None,
+            text_color: None,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -33,7 +54,8 @@ impl CustomButton {
         Self::valid_single_token(token)
     }
     fn valid_single_token(token: &str) -> bool {
-        token == "key.keyboard.unknown"
+        token == "launcher:keyboard"
+            || token == "key.keyboard.unknown"
             || crate::keybinds::key_code(token).is_some()
             || crate::keybinds::mouse_button(token).is_some()
             || token
@@ -41,16 +63,25 @@ impl CustomButton {
                 .is_some_and(|name| crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name))
     }
     pub fn label(&self) -> String {
+        if !self.caption.is_empty() {
+            return self.caption.clone();
+        }
         token_parts(&self.key)
             .map(single_label)
             .collect::<Vec<_>>()
             .join(" + ")
     }
 }
+fn square_shape() -> f32 {
+    1.0
+}
 fn token_parts(token: &str) -> impl DoubleEndedIterator<Item = &str> {
     token.strip_prefix("chord:").unwrap_or(token).split('+')
 }
 fn single_label(token: &str) -> String {
+    if token == "launcher:keyboard" {
+        return "Keyboard".into();
+    }
     if token == "key.keyboard.unknown" {
         return "Button".into();
     }
@@ -137,12 +168,44 @@ impl TouchControls {
         if self.settings.left_handed {
             p.center[0] = 1.0 - p.center[0];
         }
-        self.fit_placement(p)
+        p.size = (p.size * self.settings.button_scale).min(1.0);
+        let height = p.size;
+        let width = (height * self.settings.custom_buttons[index].shape / self.aspect()).min(1.0);
+        p.center[0] = p.center[0].clamp(width / 2.0, 1.0 - width / 2.0);
+        p.center[1] = p.center[1].clamp(height / 2.0, 1.0 - height / 2.0);
+        p
+    }
+    pub(super) fn custom_rect(&self, index: usize) -> [f32; 4] {
+        let button = &self.settings.custom_buttons[index];
+        let place = self.custom_placement(index);
+        let height = place.size.min(1.0);
+        let width = (height * button.shape / self.aspect()).min(1.0);
+        let x = place.center[0].clamp(width / 2.0, 1.0 - width / 2.0);
+        let y = place.center[1].clamp(height / 2.0, 1.0 - height / 2.0);
+        [x - width / 2.0, y - height / 2.0, width, height]
     }
     pub fn custom_at(&self, point: [f32; 2]) -> Option<usize> {
         (0..self.settings.custom_buttons.len())
             .rev()
-            .find(|&i| layout::contains(self.custom_placement(i).rect(self.aspect()), point))
+            .find(|&i| layout::contains(self.custom_rect(i), point))
+    }
+    fn held_input_snapshot(&self) -> Vec<String> {
+        self.held_custom_tokens().map(str::to_owned).collect()
+    }
+    fn custom_input_changed(&mut self, before: Vec<String>) {
+        let after = self.held_input_snapshot();
+        let mut emitted = std::collections::BTreeSet::new();
+        for token in before.iter().rev() {
+            if !after.contains(token) && emitted.insert(token.clone()) {
+                self.custom_events.push((token.clone(), false));
+            }
+        }
+        emitted.clear();
+        for token in after {
+            if !before.contains(&token) && emitted.insert(token.clone()) {
+                self.custom_events.push((token, true));
+            }
+        }
     }
     pub(super) fn custom_update(
         &mut self,
@@ -151,33 +214,49 @@ impl TouchControls {
         started: bool,
         ended: bool,
     ) -> bool {
-        if let Some(key) = self.custom_fingers.get(&id).cloned() {
+        if self.custom_fingers.contains_key(&id) {
+            let before = self.held_input_snapshot();
             if ended {
                 self.custom_fingers.remove(&id);
+                self.custom_owners.remove(&id);
                 self.fingers.remove(&id);
-                // Release in reverse order, keeping shared modifier keys held.
-                for token in token_parts(&key).rev() {
-                    if !self.held_custom_tokens().any(|held| held == token) {
-                        self.custom_events.push((token.to_owned(), false));
-                    }
-                }
+            } else if let Some(old) = self.custom_owners.get(&id).copied()
+                && self
+                    .settings
+                    .custom_buttons
+                    .get(old)
+                    .is_some_and(|b| b.swipe && !b.toggle)
+                && let Some(next) = self.custom_at(point)
+                && next != old
+                && self.settings.custom_buttons[next].swipe
+                && !self.settings.custom_buttons[next].toggle
+            {
+                self.custom_fingers
+                    .insert(id, self.settings.custom_buttons[next].key.clone());
+                self.custom_owners.insert(id, next);
             }
+            self.custom_input_changed(before);
             return true;
         }
         if started && let Some(index) = self.custom_at(point) {
-            let key = self.settings.custom_buttons[index].key.clone();
+            let button = &self.settings.custom_buttons[index];
+            let key = button.key.clone();
             if key == "key.keyboard.unknown" {
                 return false;
             }
-            // User-selected order matters for modifier chords such as F3+B.
-            let newly_held: Vec<_> = token_parts(&key)
-                .filter(|token| !self.held_custom_tokens().any(|held| held == *token))
-                .map(str::to_owned)
-                .collect();
-            self.custom_fingers.insert(id, key.clone());
+            let before = self.held_input_snapshot();
+            if button.toggle {
+                if self.custom_latched.remove(&index).is_none() {
+                    self.custom_latched.insert(index, key);
+                }
+                // Empty finger entry consumes the release without unlatching the key.
+                self.custom_fingers.insert(id, String::new());
+            } else {
+                self.custom_fingers.insert(id, key);
+            }
+            self.custom_owners.insert(id, index);
             self.fingers.insert(id, (Role::Ignore, point));
-            self.custom_events
-                .extend(newly_held.into_iter().map(|token| (token, true)));
+            self.custom_input_changed(before);
             self.clicked = true;
             return true;
         }
@@ -186,51 +265,146 @@ impl TouchControls {
     pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
         self.custom_fingers
             .values()
+            .chain(self.custom_latched.values())
             .flat_map(|token| token_parts(token))
+            .filter(|token| !token.is_empty())
     }
     pub fn key_events(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut self.custom_events)
     }
     pub(super) fn clear_custom(&mut self) {
-        let keys: std::collections::BTreeSet<_> = std::mem::take(&mut self.custom_fingers)
-            .values()
-            .flat_map(|token| token_parts(token).map(str::to_owned))
-            .collect();
-        self.custom_events
-            .extend(keys.into_iter().map(|k| (k, false)));
+        let before = self.held_input_snapshot();
+        self.custom_fingers.clear();
+        self.custom_latched.clear();
+        self.custom_owners.clear();
+        self.custom_input_changed(before);
     }
     pub(super) fn draw_custom(&self, b: &mut HudBatch, a: &HudAtlas) {
         for (i, button) in self.settings.custom_buttons.iter().enumerate() {
             let p = self.custom_placement(i);
-            let size = p.size * b.height;
+            let bounds = self.custom_rect(i);
             let rect = [
-                p.center[0] * b.width - size / 2.0,
-                p.center[1] * b.height - size / 2.0,
-                size,
-                size,
+                bounds[0] * b.width,
+                bounds[1] * b.height,
+                bounds[2] * b.width,
+                bounds[3] * b.height,
             ];
-            let pressed = self.custom_fingers.values().any(|key| *key == button.key);
+            let pressed = self.custom_fingers.values().any(|key| *key == button.key)
+                || self.custom_latched.contains_key(&i);
             let opacity = self
                 .settings
                 .draw_opacity(p.opacity, self.editor.is_some(), false);
             if opacity <= 0.0 {
                 continue;
             }
-            text_button(
-                b,
-                a,
-                rect,
-                &button.label(),
-                pressed,
-                rgba(255, 255, 255, (opacity * 255.0) as u8),
-                true,
-            );
+            if let Some(background) = button.fill_color {
+                let tint = if pressed {
+                    button.pressed_fill_color.unwrap_or(background)
+                } else {
+                    background
+                };
+                let [red, green, blue, alpha] = tint.to_le_bytes();
+                b.fill(
+                    a,
+                    rect[0],
+                    rect[1],
+                    rect[2],
+                    rect[3],
+                    rgba(red, green, blue, (alpha as f32 * opacity) as u8),
+                );
+                let label = button.label();
+                let [red, green, blue, alpha] = button.text_color.unwrap_or(u32::MAX).to_le_bytes();
+                let start = b.vertices.len();
+                let width = HudBatch::text_width(a, &label).max(1.0);
+                b.text(
+                    a,
+                    &label,
+                    rect[0] + (rect[2] - width) / 2.0,
+                    rect[1] + (rect[3] - 8.0) / 2.0,
+                    rgba(red, green, blue, (alpha as f32 * opacity) as u8),
+                    false,
+                );
+                let scale = ((rect[2] - 4.0).max(1.0) / width).min(1.0);
+                b.scale_since(
+                    start,
+                    rect[0] + rect[2] / 2.0,
+                    rect[1] + rect[3] / 2.0,
+                    scale,
+                    scale,
+                );
+            } else {
+                text_button(
+                    b,
+                    a,
+                    rect,
+                    &button.label(),
+                    pressed,
+                    rgba(255, 255, 255, (opacity * 255.0) as u8),
+                    true,
+                );
+            }
         }
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn toggle_and_swipe_release_without_stuck_inputs() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let mut toggle = CustomButton::new("key.keyboard.left.control".into(), 0);
+        toggle.toggle = true;
+        t.settings.custom_buttons.push(toggle);
+        let p = t.custom_placement(0).center;
+        t.custom_update(1, p, true, false);
+        assert_eq!(t.key_events(), [("key.keyboard.left.control".into(), true)]);
+        t.custom_update(1, p, false, true);
+        assert!(t.key_events().is_empty());
+        t.custom_update(2, p, true, false);
+        assert_eq!(
+            t.key_events(),
+            [("key.keyboard.left.control".into(), false)]
+        );
+        t.clear();
+        t.settings.custom_buttons.clear();
+        for (i, key) in [
+            "chord:key.keyboard.w+key.keyboard.a",
+            "chord:key.keyboard.w+key.keyboard.d",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut b = CustomButton::new(key.into(), i);
+            b.swipe = true;
+            t.settings.custom_buttons.push(b);
+        }
+        let p0 = t.custom_placement(0).center;
+        let p1 = t.custom_placement(1).center;
+        t.custom_update(1, p0, true, false);
+        t.key_events();
+        t.custom_update(1, p1, false, false);
+        assert_eq!(
+            t.key_events(),
+            [
+                ("key.keyboard.a".into(), false),
+                ("key.keyboard.d".into(), true)
+            ]
+        );
+        t.clear();
+        assert_eq!(t.held_custom_tokens().count(), 0);
+    }
+    #[test]
+    fn narrow_rectangles_keep_their_source_center() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let mut b = CustomButton::new("key.keyboard.a".into(), 0);
+        b.shape = 0.2;
+        b.layouts = [Placement::new(0.02, 0.5, 0.2); 3];
+        t.settings.custom_buttons.push(b);
+        let rect = t.custom_rect(0);
+        assert!((rect[0] + rect[2] / 2.0 - 0.02).abs() < 0.001);
+    }
     #[test]
     fn chords_validate_and_shared_keys_release_after_last_owner() {
         assert!(CustomButton::valid_token(
