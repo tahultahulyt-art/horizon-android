@@ -152,6 +152,8 @@ pub struct Settings {
     /// Game-drawn virtual/controller menu arrow only, not the OS pointer.
     pub cursor_scale: f32,
     pub custom_buttons: Vec<super::CustomButton>,
+    pub active_layout: String,
+    pub named_layouts: std::collections::BTreeMap<String, super::presets::SavedLayout>,
     pub analog_movement: bool,
     pub sprint_button: bool,
     pub sprint_toggle: bool,
@@ -244,6 +246,8 @@ impl Default for Settings {
             control_opacity: 1.0,
             cursor_scale: 1.0,
             custom_buttons: Vec::new(),
+            active_layout: "My controls".into(),
+            named_layouts: std::collections::BTreeMap::new(),
             analog_movement: false,
             sprint_button: true,
             sprint_toggle: false,
@@ -392,6 +396,10 @@ impl Settings {
         self.custom_buttons
             .retain(|b| super::CustomButton::valid_token(&b.key));
         for button in &mut self.custom_buttons {
+            if !button.shape.is_finite() {
+                button.shape = 1.0;
+            }
+            button.shape = button.shape.clamp(0.1, 8.0);
             for p in &mut button.layouts {
                 p.sanitize();
             }
