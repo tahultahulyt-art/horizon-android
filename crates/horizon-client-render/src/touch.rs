@@ -10,6 +10,7 @@ pub mod assist;
 pub mod attack_drag;
 mod custom;
 mod editor;
+mod presets;
 pub mod stabilizer;
 pub use custom::CustomButton;
 pub mod layout;
@@ -140,6 +141,8 @@ pub struct TouchControls {
     attack_drags: BTreeMap<u64, attack_drag::AttackDrag>,
     custom_fingers: BTreeMap<u64, String>,
     custom_events: Vec<(String, bool)>,
+    custom_owners: BTreeMap<u64, usize>,
+    custom_latched: BTreeMap<usize, String>,
     pending: PadState,
     pub aim: Option<[f32; 2]>,
     tap_aim: Option<[f32; 2]>,
@@ -358,9 +361,6 @@ impl TouchControls {
     }
     pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas) {
         let (w, h) = (b.width, b.height);
-        if self.editor.is_some() {
-            self.draw_editor_toolbar(b, a);
-        }
         let state = self.state();
         for control in Control::ALL {
             if !self.visible(control) {
@@ -574,6 +574,7 @@ impl TouchControls {
         }
         self.draw_custom(b, a);
         if self.editor.is_some() {
+            self.draw_editor_toolbar(b, a);
             self.draw_editor(b, a);
         } else if let Some(point) = self.pointer() {
             let center = [point[0] * w, point[1] * h];
@@ -2078,4 +2079,4 @@ mod tests {
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
     }
-}
+                         }
