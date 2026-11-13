@@ -154,6 +154,29 @@ impl Game<'_> {
         })
     }
     pub(super) fn android_custom_events(&mut self) {
+        self.pad.custom_mapped_keys = self
+            .pad
+            .touch
+            .held_custom_tokens()
+            .flat_map(|token| {
+                if let Some(action) = token.strip_prefix("action:") {
+                    horizon_client::keybinds::key_code(
+                        horizon_client::keybinds::KeyBinds::default_of(action),
+                    )
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                } else if let Some(physical) = horizon_client::keybinds::key_code(token) {
+                    self.settings
+                        .keys
+                        .translate_all(physical)
+                        .into_iter()
+                        .filter_map(std::result::Result::ok)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
         for (name, down) in self.pad.touch.key_events() {
             if name == "launcher:keyboard" {
                 if down {
