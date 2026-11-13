@@ -20,6 +20,19 @@ pub struct CustomButton {
     pub pressed_fill_color: Option<u32>,
     #[serde(default)]
     pub text_color: Option<u32>,
+    #[serde(default)]
+    pub decoration: Option<ButtonDecoration>,
+}
+/// Colors use the renderer's packed RGBA order. Corner sizes are source pixels.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ButtonDecoration {
+    pub corners: [f32; 4],
+    pub pressed_corners: [f32; 4],
+    pub border: f32,
+    pub pressed_border: f32,
+    pub border_color: u32,
+    pub pressed_border_color: u32,
+    pub pressed_text_color: u32,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
@@ -32,6 +45,7 @@ impl CustomButton {
             fill_color: None,
             pressed_fill_color: None,
             text_color: None,
+            decoration: None,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -303,17 +317,38 @@ impl TouchControls {
                 } else {
                     background
                 };
-                let [red, green, blue, alpha] = tint.to_le_bytes();
-                b.fill(
-                    a,
-                    rect[0],
-                    rect[1],
-                    rect[2],
-                    rect[3],
-                    rgba(red, green, blue, (alpha as f32 * opacity) as u8),
-                );
+                let color = faded(tint, opacity);
+                if let Some(style) = &button.decoration {
+                    let corners = if pressed {
+                        style.pressed_corners
+                    } else {
+                        style.corners
+                    };
+                    let border = if pressed {
+                        style.pressed_border
+                    } else {
+                        style.border
+                    };
+                    let stroke = if pressed {
+                        style.pressed_border_color
+                    } else {
+                        style.border_color
+                    };
+                    decorated_button(b, a, rect, corners, border, color, faded(stroke, opacity));
+                } else {
+                    b.fill(a, rect[0], rect[1], rect[2], rect[3], color);
+                }
                 let label = button.label();
-                let [red, green, blue, alpha] = button.text_color.unwrap_or(u32::MAX).to_le_bytes();
+                let text_color = if pressed {
+                    button
+                        .decoration
+                        .as_ref()
+                        .map(|s| s.pressed_text_color)
+                        .or(button.text_color)
+                } else {
+                    button.text_color
+                };
+                let [red, green, blue, alpha] = text_color.unwrap_or(u32::MAX).to_le_bytes();
                 let start = b.vertices.len();
                 let width = HudBatch::text_width(a, &label).max(1.0);
                 b.text(
@@ -346,9 +381,105 @@ impl TouchControls {
         }
     }
 }
+fn faded(color: u32, opacity: f32) -> u32 {
+    let [r, g, b, a] = color.to_le_bytes();
+    rgba(r, g, b, (a as f32 * opacity) as u8)
+}
+/// One convex perimeter shared by the fill and border, with no translucent overlap.
+fn rounded_points([x, y, w, h]: [f32; 4], mut radii: [f32; 4]) -> Vec<[f32; 2]> {
+    for radius in &mut radii {
+        *radius = if radius.is_finite() {
+            radius.max(0.0)
+        } else {
+            0.0
+        };
+    }
+    let mut scale = 1.0_f32;
+    for (edge, sum) in [
+        (w, radii[0] + radii[1]),
+        (h, radii[1] + radii[2]),
+        (w, radii[2] + radii[3]),
+        (h, radii[3] + radii[0]),
+    ] {
+        if sum > 0.0 {
+            scale = scale.min(edge / sum);
+        }
+    }
+    radii = radii.map(|r| r * scale.max(0.0));
+    let centers = [
+        [x + radii[0], y + radii[0]],
+        [x + w - radii[1], y + radii[1]],
+        [x + w - radii[2], y + h - radii[2]],
+        [x + radii[3], y + h - radii[3]],
+    ];
+    let mut points = Vec::with_capacity(36);
+    for i in 0..4 {
+        for step in 0..=8 {
+            let angle = (180.0 + i as f32 * 90.0 + step as f32 * 90.0 / 8.0).to_radians();
+            points.push([
+                centers[i][0] + radii[i] * angle.cos(),
+                centers[i][1] + radii[i] * angle.sin(),
+            ]);
+        }
+    }
+    points
+}
+fn decorated_button(
+    b: &mut HudBatch,
+    a: &HudAtlas,
+    rect: [f32; 4],
+    corners: [f32; 4],
+    border: f32,
+    fill: u32,
+    stroke: u32,
+) {
+    let Some(white) = a.sprites.get("horizon/white") else {
+        b.fill(a, rect[0], rect[1], rect[2], rect[3], fill);
+        return;
+    };
+    let uv = [[(white.u0 + white.u1) / 2.0, (white.v0 + white.v1) / 2.0]; 4];
+    let scale = b.scale.max(0.1);
+    let radii = corners.map(|r| r / scale);
+    let thickness = (border / scale).max(0.0).min(rect[2].min(rect[3]) / 2.0);
+    let outer = rounded_points(rect, radii);
+    let inner = rounded_points(
+        [
+            rect[0] + thickness,
+            rect[1] + thickness,
+            (rect[2] - 2.0 * thickness).max(0.0),
+            (rect[3] - 2.0 * thickness).max(0.0),
+        ],
+        radii.map(|r| (r - thickness).max(0.0)),
+    );
+    let center = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
+    for i in 0..outer.len() {
+        let j = (i + 1) % outer.len();
+        if thickness > 0.0 {
+            b.quad([outer[i], outer[j], inner[j], inner[i]], uv, stroke);
+        }
+        b.quad([center, inner[i], inner[j], center], uv, fill);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rounded_perimeter_keeps_asymmetric_corners_inside_bounds() {
+        let p = rounded_points([10.0, 20.0, 100.0, 60.0], [20.0, 0.0, 15.0, 0.0]);
+        assert_eq!(p.len(), 36);
+        assert!((p[0][0] - 10.0).abs() < 0.001);
+        assert!((p[0][1] - 40.0).abs() < 0.001);
+        assert!(
+            p.iter()
+                .all(|q| q[0] >= 9.999 && q[0] <= 110.001 && q[1] >= 19.999 && q[1] <= 80.001)
+        );
+        let large = rounded_points([0.0, 0.0, 10.0, 10.0], [40.0; 4]);
+        assert!(
+            large
+                .iter()
+                .all(|q| q[0] >= -0.001 && q[0] <= 10.001 && q[1] >= -0.001 && q[1] <= 10.001)
+        );
+    }
     #[test]
     fn toggle_and_swipe_release_without_stuck_inputs() {
         let mut t = TouchControls::default();
