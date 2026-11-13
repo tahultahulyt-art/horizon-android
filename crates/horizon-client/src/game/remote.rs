@@ -6508,7 +6508,7 @@ impl Game<'_> {
             return;
         }
         // 1 is single player only; 2 runs on servers too.
-        let mode = self.settings.extras.auto_mlg;
+        let mode = if self.auto_mlg.hotkey_on { 2 } else { 0 };
         if mode == 0 || (mode == 1 && self.integrated.is_none()) || self.spectator() {
             return;
         }
