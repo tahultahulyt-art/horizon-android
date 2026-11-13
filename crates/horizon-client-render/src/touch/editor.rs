@@ -12,6 +12,10 @@ pub struct Editor {
     key_picker: bool,
     key_page: usize,
     raw_keys: bool,
+    search: String,
+    search_editing: bool,
+    chord_mode: bool,
+    chord_keys: Vec<String>,
 }
 
 enum Drag {
@@ -33,7 +37,11 @@ impl TouchControls {
             selected_custom: None,
             key_picker: false,
             key_page: 0,
-            raw_keys: false,
+            raw_keys: true,
+            search: String::new(),
+            search_editing: false,
+            chord_mode: false,
+            chord_keys: Vec::new(),
         });
     }
     pub fn cancel_editor(&mut self) {
@@ -350,31 +358,78 @@ impl TouchControls {
         }
         if e.key_picker {
             if started {
-                if layout::contains([0.15, 0.16, 0.33, 0.06], p) {
+                if e.search_editing {
+                    if layout::contains([0.08, 0.84, 0.24, 0.075], p) {
+                        e.search.pop();
+                    } else if layout::contains([0.38, 0.84, 0.24, 0.075], p) {
+                        e.search.clear();
+                    } else if layout::contains([0.68, 0.84, 0.24, 0.075], p) {
+                        e.search_editing = false;
+                    } else {
+                        for (i, c) in SEARCH_CHARS.chars().enumerate() {
+                            if layout::contains(search_key_rect(i), p) && e.search.len() < 32 {
+                                e.search.push(c);
+                                break;
+                            }
+                        }
+                    }
+                    e.key_page = 0;
+                } else if layout::contains([0.08, 0.16, 0.26, 0.06], p) {
                     e.raw_keys = false;
                     e.key_page = 0;
-                } else if layout::contains([0.52, 0.16, 0.33, 0.06], p) {
+                } else if layout::contains([0.37, 0.16, 0.26, 0.06], p) {
                     e.raw_keys = true;
                     e.key_page = 0;
-                } else if layout::contains([0.2, 0.86, 0.18, 0.07], p) {
+                } else if layout::contains([0.66, 0.16, 0.26, 0.06], p) {
+                    e.chord_mode = !e.chord_mode;
+                    e.chord_keys.clear();
+                } else if layout::contains([0.08, 0.24, 0.84, 0.065], p) {
+                    e.search_editing = true;
+                } else if layout::contains([0.08, 0.85, 0.24, 0.075], p) {
                     e.key_page = e.key_page.saturating_sub(1);
-                } else if layout::contains([0.41, 0.86, 0.18, 0.07], p) {
-                    e.key_picker = false;
-                } else if layout::contains([0.62, 0.86, 0.18, 0.07], p) {
-                    e.key_page = (e.key_page + 1)
-                        .min(super::custom::choices(e.raw_keys).len().saturating_sub(1) / 8);
+                } else if layout::contains([0.38, 0.85, 0.24, 0.075], p) {
+                    if e.chord_mode {
+                        if let Some(index) = e.selected_custom
+                            && !e.chord_keys.is_empty()
+                        {
+                            self.settings.custom_buttons[index].key = if e.chord_keys.len() == 1 {
+                                e.chord_keys[0].clone()
+                            } else {
+                                format!("chord:{}", e.chord_keys.join("+"))
+                            };
+                            e.key_picker = false;
+                        }
+                    } else {
+                        e.key_picker = false;
+                    }
+                } else if layout::contains([0.68, 0.85, 0.24, 0.075], p) {
+                    e.key_page = (e.key_page + 1).min(
+                        picker_choices(e.raw_keys, &e.search)
+                            .len()
+                            .saturating_sub(1)
+                            / KEYS_PER_PAGE,
+                    );
                 } else {
-                    for (i, (token, _)) in super::custom::choices(e.raw_keys)
+                    for (i, (token, _)) in picker_choices(e.raw_keys, &e.search)
                         .into_iter()
-                        .skip(e.key_page * 8)
-                        .take(8)
+                        .skip(e.key_page * KEYS_PER_PAGE)
+                        .take(KEYS_PER_PAGE)
                         .enumerate()
                     {
                         if layout::contains(key_rect(i), p)
                             && let Some(index) = e.selected_custom
                         {
-                            self.settings.custom_buttons[index].key = token;
-                            e.key_picker = false;
+                            if e.chord_mode {
+                                if let Some(at) = e.chord_keys.iter().position(|key| *key == token)
+                                {
+                                    e.chord_keys.remove(at);
+                                } else if e.chord_keys.len() < 8 {
+                                    e.chord_keys.push(token);
+                                }
+                            } else {
+                                self.settings.custom_buttons[index].key = token;
+                                e.key_picker = false;
+                            }
                             break;
                         }
                     }
@@ -383,7 +438,7 @@ impl TouchControls {
             return true;
         }
         if e.palette && started && layout::contains([0.22, 0.84, 0.56, 0.07], p) {
-            if self.settings.custom_buttons.len() < 32 {
+            if self.settings.custom_buttons.len() < 64 {
                 let index = self.settings.custom_buttons.len();
                 self.settings
                     .custom_buttons
@@ -391,7 +446,11 @@ impl TouchControls {
                 e.selected = None;
                 e.selected_custom = Some(index);
                 e.key_picker = true;
-                e.raw_keys = false;
+                e.raw_keys = true;
+                e.chord_mode = false;
+                e.chord_keys.clear();
+                e.search.clear();
+                e.search_editing = false;
                 e.key_page = 0;
                 e.palette = false;
                 e.option = None;
@@ -405,6 +464,10 @@ impl TouchControls {
         if started && e.selected_custom.is_some() {
             if layout::contains([0.32, 0.54, 0.36, 0.07], p) {
                 e.key_picker = true;
+                e.chord_mode = false;
+                e.chord_keys.clear();
+                e.search.clear();
+                e.search_editing = false;
                 e.key_page = 0;
                 e.drag = None;
                 return true;
@@ -489,6 +552,8 @@ impl TouchControls {
         }
         if let Some(e) = &mut self.editor
             && e.key_picker
+            && !e.search_editing
+            && !e.chord_mode
             && let Some(i) = e.selected_custom
         {
             self.settings.custom_buttons[i].key = name.into();
@@ -576,28 +641,166 @@ impl TouchControls {
         if e.key_picker {
             b.fill(
                 a,
-                w * 0.12,
+                w * 0.05,
                 h * 0.14,
-                w * 0.76,
+                w * 0.9,
                 h * 0.81,
                 rgba(15, 15, 15, 250),
             );
-            plate(b, a, [0.15, 0.16, 0.33, 0.06], "Game action", !e.raw_keys);
-            plate(b, a, [0.52, 0.16, 0.33, 0.06], "Keyboard key", e.raw_keys);
-            for (i, (_, label)) in super::custom::choices(e.raw_keys)
-                .iter()
-                .skip(e.key_page * 8)
-                .take(8)
-                .enumerate()
-            {
-                plate(b, a, key_rect(i), label, false);
+            plate(b, a, [0.08, 0.16, 0.26, 0.06], "Game actions", !e.raw_keys);
+            plate(b, a, [0.37, 0.16, 0.26, 0.06], "All keys", e.raw_keys);
+            plate(b, a, [0.66, 0.16, 0.26, 0.06], "Multi-key", e.chord_mode);
+            let search_label = if e.search.is_empty() {
+                "Search keys... (tap)".to_owned()
+            } else {
+                format!("Search: {}", e.search)
+            };
+            plate(
+                b,
+                a,
+                [0.08, 0.24, 0.84, 0.065],
+                &search_label,
+                e.search_editing,
+            );
+            let choices = picker_choices(e.raw_keys, &e.search);
+            if e.search_editing {
+                b.text(
+                    a,
+                    "Type a key name, then Show results",
+                    w * 0.08,
+                    h * 0.33,
+                    u32::MAX,
+                    false,
+                );
+                for (i, c) in SEARCH_CHARS.chars().enumerate() {
+                    plate(
+                        b,
+                        a,
+                        search_key_rect(i),
+                        &c.to_ascii_uppercase().to_string(),
+                        false,
+                    );
+                }
+                plate(b, a, [0.08, 0.84, 0.24, 0.075], "Backspace", false);
+                plate(b, a, [0.38, 0.84, 0.24, 0.075], "Clear", false);
+                plate(b, a, [0.68, 0.84, 0.24, 0.075], "Show results", false);
+            } else {
+                let pages = choices.len().saturating_sub(1) / KEYS_PER_PAGE + 1;
+                b.text(
+                    a,
+                    &format!("{} keys - page {}/{}", choices.len(), e.key_page + 1, pages),
+                    w * 0.08,
+                    h * 0.32,
+                    u32::MAX,
+                    false,
+                );
+                if choices.is_empty() {
+                    b.text(
+                        a,
+                        "No matches. Tap Search to change it.",
+                        w * 0.08,
+                        h * 0.45,
+                        u32::MAX,
+                        false,
+                    );
+                }
+                for (i, (token, label)) in choices
+                    .iter()
+                    .skip(e.key_page * KEYS_PER_PAGE)
+                    .take(KEYS_PER_PAGE)
+                    .enumerate()
+                {
+                    plate(b, a, key_rect(i), label, e.chord_keys.contains(token));
+                }
+                plate(b, a, [0.08, 0.85, 0.24, 0.075], "Previous", false);
+                plate(
+                    b,
+                    a,
+                    [0.38, 0.85, 0.24, 0.075],
+                    if e.chord_mode { "Apply keys" } else { "Back" },
+                    false,
+                );
+                if e.chord_mode {
+                    let names = e
+                        .chord_keys
+                        .iter()
+                        .map(|key| super::custom::CustomButton::new(key.clone(), 0).label())
+                        .collect::<Vec<_>>()
+                        .join(" + ");
+                    b.text(
+                        a,
+                        &format!("Selected: {}", names),
+                        w * 0.08,
+                        h * 0.94,
+                        u32::MAX,
+                        false,
+                    );
+                }
+                plate(b, a, [0.68, 0.85, 0.24, 0.075], "Next", false);
             }
-            plate(b, a, [0.2, 0.86, 0.18, 0.07], "Previous", false);
-            plate(b, a, [0.41, 0.86, 0.18, 0.07], "Back", false);
-            plate(b, a, [0.62, 0.86, 0.18, 0.07], "Next", false);
         }
     }
 }
+const KEYS_PER_PAGE: usize = 16;
+const SEARCH_CHARS: &str = "1234567890qwertyuiopasdfghjklzxcvbnm .-";
 fn key_rect(i: usize) -> [f32; 4] {
-    [0.15, 0.25 + i as f32 * 0.072, 0.7, 0.06]
+    [
+        0.08 + (i % 4) as f32 * 0.215,
+        0.36 + (i / 4) as f32 * 0.116,
+        0.195,
+        0.095,
+    ]
+}
+fn search_key_rect(i: usize) -> [f32; 4] {
+    [
+        0.08 + (i % 10) as f32 * 0.085,
+        0.38 + (i / 10) as f32 * 0.11,
+        0.075,
+        0.09,
+    ]
+}
+fn picker_choices(raw_keys: bool, search: &str) -> Vec<(String, String)> {
+    let query = search.to_lowercase().replace(['.', '-', '_'], " ");
+    super::custom::choices(raw_keys)
+        .into_iter()
+        .filter(|(token, label)| {
+            let haystack = format!("{} {}", token, label)
+                .to_lowercase()
+                .replace(['.', '-', '_'], " ");
+            query.split_whitespace().all(|word| haystack.contains(word))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod picker_tests {
+    use super::*;
+    #[test]
+    fn all_keys_still_available_and_search_handles_tokens() {
+        assert_eq!(
+            picker_choices(true, "").len(),
+            crate::keybinds::available_keys().len() + 5
+        );
+        assert!(
+            picker_choices(true, "left shift")
+                .iter()
+                .any(|(t, _)| t == "key.keyboard.left.shift")
+        );
+        assert!(
+            picker_choices(true, "F5")
+                .iter()
+                .any(|(t, _)| t == "key.keyboard.f5")
+        );
+        assert!(picker_choices(true, "nothing matches this").is_empty());
+    }
+    #[test]
+    fn key_tiles_and_search_keys_stay_inside_panel() {
+        for r in (0..KEYS_PER_PAGE)
+            .map(key_rect)
+            .chain((0..SEARCH_CHARS.len()).map(search_key_rect))
+        {
+            assert!(r[0] >= 0.05 && r[0] + r[2] < 0.95);
+            assert!(r[1] >= 0.14 && r[1] + r[3] < 0.84);
+        }
+    }
 }
