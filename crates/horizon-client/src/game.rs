@@ -2106,7 +2106,8 @@ struct AutoMlg {
     /// target the use aims along.
     pending: Option<(usize, [f64; 3], [f64; 3])>,
     cooldown: u32,
-
+    /// The H key toggle; off at every start, the only switch.
+    hotkey_on: bool,
 }
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
@@ -15432,7 +15433,7 @@ impl Game<'_> {
         if self.screen == Screen::Mod && self.mod_screen_key(key) {
             return Ok(());
         }
-        if self.sort_key_press(key) || self.hdr_key_press(key) {
+        if self.auto_mlg_key_press(key) || self.sort_key_press(key) || self.hdr_key_press(key) {
             return Ok(());
         }
         if self.remote.is_some() && self.remote_key(key)? {
