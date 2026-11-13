@@ -863,6 +863,9 @@ impl TouchControls {
     }
     pub fn state(&self) -> PadState {
         let mut state = PadState::default();
+        if self.custom_auto_sprint() {
+            state.set(Button::LeftStick, true);
+        }
         if self.settings.sprint_toggle && self.settings.sprint_button && self.sprint_latched {
             state.set(Button::LeftStick, true);
         }
@@ -2079,4 +2082,4 @@ mod tests {
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
     }
-                         }
+}
