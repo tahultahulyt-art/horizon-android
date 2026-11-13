@@ -9,6 +9,7 @@ pub struct Editor {
     error: Option<String>,
     palette: bool,
     selected_custom: Option<usize>,
+    preset_menu: bool,
     key_picker: bool,
     key_page: usize,
     raw_keys: bool,
@@ -35,6 +36,7 @@ impl TouchControls {
             error: None,
             palette: false,
             selected_custom: None,
+            preset_menu: false,
             key_picker: false,
             key_page: 0,
             raw_keys: true,
@@ -75,6 +77,10 @@ impl TouchControls {
                 self.clear();
                 return true;
             } else if layout::contains([0.25, 0.04, 0.105, 0.075], p) {
+                if self.reset_active_preset() {
+                    self.editor = Some(e);
+                    return false;
+                }
                 self.settings.layouts[self.settings.mode.index()] =
                     Settings::default().layouts[self.settings.mode.index()];
                 self.settings.button_visibility = [0; 14];
@@ -179,6 +185,7 @@ impl TouchControls {
             ([0.02, 0.04, 0.105, 0.075], "Done"),
             ([0.135, 0.04, 0.105, 0.075], "Cancel"),
             ([0.25, 0.04, 0.105, 0.075], "Reset"),
+            ([0.37, 0.04, 0.16, 0.075], "Layouts..."),
             ([0.02, 0.13, 0.335, 0.075], "Add buttons..."),
         ] {
             plate(b, a, rect, label, false);
@@ -353,6 +360,28 @@ impl TouchControls {
         started: bool,
         ended: bool,
     ) -> bool {
+        if started && layout::contains([0.37, 0.04, 0.16, 0.075], p) {
+            e.preset_menu = !e.preset_menu;
+            e.key_picker = false;
+            e.palette = false;
+            return true;
+        }
+        if e.preset_menu {
+            if started {
+                for (i, name) in super::presets::NAMES.into_iter().enumerate() {
+                    if layout::contains([0.22, 0.26 + i as f32 * 0.13, 0.56, 0.10], p) {
+                        self.choose_preset(name);
+                        e.preset_menu = false;
+                        e.selected = None;
+                        e.selected_custom = None;
+                        e.option = None;
+                        e.drag = None;
+                        break;
+                    }
+                }
+            }
+            return true;
+        }
         if p[1] < 0.13 && started {
             return false;
         }
@@ -397,6 +426,7 @@ impl TouchControls {
                             } else {
                                 format!("chord:{}", e.chord_keys.join("+"))
                             };
+                            self.settings.custom_buttons[index].caption.clear();
                             e.key_picker = false;
                         }
                     } else {
@@ -428,6 +458,7 @@ impl TouchControls {
                                 }
                             } else {
                                 self.settings.custom_buttons[index].key = token;
+                                self.settings.custom_buttons[index].caption.clear();
                                 e.key_picker = false;
                             }
                             break;
@@ -517,6 +548,7 @@ impl TouchControls {
             let aspect = self.aspect();
             let scale = self.settings.button_scale;
             let mirror = self.settings.left_handed;
+            let shape = self.settings.custom_buttons[index].shape;
             let place =
                 &mut self.settings.custom_buttons[index].layouts[self.settings.mode.index()];
             match drag {
@@ -526,8 +558,9 @@ impl TouchControls {
                         center[0] = 1.0 - center[0];
                     }
                     let size = (place.size * scale).min(aspect).min(1.0);
+                    let width = (size * shape / aspect).min(1.0);
                     place.center = [
-                        center[0].clamp(size / aspect / 2.0, 1.0 - size / aspect / 2.0),
+                        center[0].clamp(width / 2.0, 1.0 - width / 2.0),
                         center[1].clamp(size / 2.0, 1.0 - size / 2.0),
                     ];
                 }
@@ -557,6 +590,7 @@ impl TouchControls {
             && let Some(i) = e.selected_custom
         {
             self.settings.custom_buttons[i].key = name.into();
+            self.settings.custom_buttons[i].caption.clear();
             e.key_picker = false;
             true
         } else {
@@ -565,6 +599,34 @@ impl TouchControls {
     }
     fn draw_custom_editor(&self, b: &mut HudBatch, a: &HudAtlas, e: &Editor) {
         let (w, h) = (b.width, b.height);
+        if e.preset_menu {
+            b.fill(
+                a,
+                b.width * 0.18,
+                b.height * 0.16,
+                b.width * 0.64,
+                b.height * 0.71,
+                rgba(15, 15, 15, 250),
+            );
+            b.text(
+                a,
+                "Choose layout - previous edits are kept",
+                w * 0.22,
+                h * 0.2,
+                u32::MAX,
+                false,
+            );
+            for (i, name) in super::presets::NAMES.into_iter().enumerate() {
+                plate(
+                    b,
+                    a,
+                    [0.22, 0.26 + i as f32 * 0.13, 0.56, 0.10],
+                    name,
+                    self.settings.active_layout == name,
+                );
+            }
+            return;
+        }
         if e.palette {
             plate(b, a, [0.22, 0.84, 0.56, 0.07], "Create button...", false);
         }
