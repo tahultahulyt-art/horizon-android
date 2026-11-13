@@ -145,15 +145,22 @@ impl Game<'_> {
     }
     pub(super) fn android_custom_mouse_held(&self, button: MouseButton) -> bool {
         self.pad.touch.held_custom_tokens().any(|token| {
-            token.strip_prefix("action:").is_some_and(|mapping| {
-                horizon_client::keybinds::mouse_button(
-                    horizon_client::keybinds::KeyBinds::default_of(mapping),
-                ) == Some(button)
-            })
+            horizon_client::keybinds::mouse_button(token) == Some(button)
+                || token.strip_prefix("action:").is_some_and(|mapping| {
+                    horizon_client::keybinds::mouse_button(
+                        horizon_client::keybinds::KeyBinds::default_of(mapping),
+                    ) == Some(button)
+                })
         })
     }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
+            if let Some(button) = horizon_client::keybinds::mouse_button(&name) {
+                if let Err(error) = self.android_custom_mouse(button, down) {
+                    log::warn!("Custom touch mouse: {error}");
+                }
+                continue;
+            }
             if let Some(mapping) = name.strip_prefix("action:") {
                 let default = horizon_client::keybinds::KeyBinds::default_of(mapping);
                 let result = if let Some(key) = horizon_client::keybinds::key_code(default) {
