@@ -276,6 +276,13 @@ impl TouchControls {
         }
         false
     }
+    /// Auto Sprint also covers preset movement keys, not only the joystick.
+    pub(super) fn custom_auto_sprint(&self) -> bool {
+        let held = |names: &[&str]| self.held_custom_tokens().any(|key| names.contains(&key));
+        self.settings.sprint_with_joystick
+            && held(&["key.keyboard.w", "action:key.forward"])
+            && !held(&["key.keyboard.s", "action:key.back"])
+    }
     pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
         self.custom_fingers
             .values()
@@ -463,6 +470,34 @@ fn decorated_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn auto_sprint_tracks_preset_forward_keys_and_option() {
+        for name in ["PvP", "Sword", "Mace"] {
+            let mut t = TouchControls::default();
+            t.viewport(1920, 1080);
+            t.choose_preset(name);
+            let i = t
+                .settings
+                .custom_buttons
+                .iter()
+                .position(|b| token_parts(&b.key).any(|k| k == "key.keyboard.w"))
+                .unwrap();
+            let p = t.custom_placement(i).center;
+            t.settings.sprint_with_joystick = true;
+            t.custom_update(1, p, true, false);
+            assert!(t.custom_auto_sprint(), "{name}");
+            t.settings.sprint_with_joystick = false;
+            assert!(!t.custom_auto_sprint());
+            t.settings.sprint_with_joystick = true;
+            t.custom_update(1, p, false, true);
+            assert!(!t.custom_auto_sprint());
+            t.custom_fingers
+                .insert(2, "chord:key.keyboard.w+key.keyboard.s".into());
+            assert!(!t.custom_auto_sprint());
+            t.clear();
+            assert!(!t.custom_auto_sprint());
+        }
+    }
     #[test]
     fn rounded_perimeter_keeps_asymmetric_corners_inside_bounds() {
         let p = rounded_points([10.0, 20.0, 100.0, 60.0], [20.0, 0.0, 15.0, 0.0]);
