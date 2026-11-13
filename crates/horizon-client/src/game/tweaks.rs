@@ -449,6 +449,21 @@ impl Game<'_> {
     pub(super) fn sort_mouse_press(&mut self, button: MouseButton) -> bool {
         self.sort_input(&keybinds::mouse_name(button))
     }
+    /// H toggles the auto water bucket (off at start; no menu row). Only
+    /// while playing, so typing H in chat or a text field is untouched.
+    pub(super) fn auto_mlg_key_press(&mut self, key: KeyCode) -> bool {
+        if key != KeyCode::KeyH || self.screen != Screen::Playing || self.remote.is_none() && self.integrated.is_none() {
+            return false;
+        }
+        self.auto_mlg.hotkey_on = !self.auto_mlg.hotkey_on;
+        self.auto_mlg.pending = None;
+        let state = if self.auto_mlg.hotkey_on { "ON" } else { "OFF" };
+        self.titles.set_overlay(
+            horizon_client::text::Text::literal(format!("Auto water bucket: {state}")),
+            false,
+        );
+        true
+    }
     /// The HDR settings key (`Graphics::hdr_key`): opens Graphics: HDR from the game, where
     /// the display offers HDR; Done goes back to the game.
     pub(super) fn hdr_key_press(&mut self, key: KeyCode) -> bool {
