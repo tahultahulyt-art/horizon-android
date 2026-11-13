@@ -19,27 +19,62 @@ impl CustomButton {
         }
     }
     pub fn valid_token(token: &str) -> bool {
+        if let Some(keys) = token.strip_prefix("chord:") {
+            let parts: Vec<_> = keys.split('+').collect();
+            return (2..=8).contains(&parts.len())
+                && parts
+                    .iter()
+                    .all(|key| Self::valid_single_token(key) && *key != "key.keyboard.unknown")
+                && parts
+                    .iter()
+                    .enumerate()
+                    .all(|(i, k)| !parts[..i].contains(k));
+        }
+        Self::valid_single_token(token)
+    }
+    fn valid_single_token(token: &str) -> bool {
         token == "key.keyboard.unknown"
             || crate::keybinds::key_code(token).is_some()
+            || crate::keybinds::mouse_button(token).is_some()
             || token
                 .strip_prefix("action:")
                 .is_some_and(|name| crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name))
     }
     pub fn label(&self) -> String {
-        if self.key == "key.keyboard.unknown" {
-            return "Button".into();
-        }
-        if let Some(name) = self.key.strip_prefix("action:") {
-            return crate::text::Text::translate(name, &[]).plain();
-        }
-        crate::keybinds::display_name(&self.key).plain()
+        token_parts(&self.key)
+            .map(single_label)
+            .collect::<Vec<_>>()
+            .join(" + ")
     }
+}
+fn token_parts(token: &str) -> impl DoubleEndedIterator<Item = &str> {
+    token.strip_prefix("chord:").unwrap_or(token).split('+')
+}
+fn single_label(token: &str) -> String {
+    if token == "key.keyboard.unknown" {
+        return "Button".into();
+    }
+    if let Some(name) = token.strip_prefix("action:") {
+        return crate::text::Text::translate(name, &[]).plain();
+    }
+    crate::keybinds::display_name(token).plain()
 }
 pub(super) fn choices(raw_keys: bool) -> Vec<(String, String)> {
     if raw_keys {
         crate::keybinds::available_keys()
             .iter()
             .map(|(name, _)| ((*name).into(), crate::keybinds::display_name(name).plain()))
+            .chain(
+                [
+                    "key.mouse.left",
+                    "key.mouse.right",
+                    "key.mouse.middle",
+                    "key.mouse.4",
+                    "key.mouse.5",
+                ]
+                .into_iter()
+                .map(|name| (name.to_owned(), single_label(name))),
+            )
             .collect()
     } else {
         crate::keybinds::MAPPINGS
@@ -77,7 +112,7 @@ impl TouchControls {
             && self.custom_at(point).is_none()
             && let Some(token) = self.control_at(point).and_then(Self::inventory_token)
         {
-            let pressed = !self.custom_fingers.values().any(|v| v == token);
+            let pressed = !self.held_custom_tokens().any(|v| v == token);
             self.custom_fingers.insert(id, token.into());
             self.fingers.insert(id, (Role::Ignore, point));
             if pressed {
@@ -120,8 +155,11 @@ impl TouchControls {
             if ended {
                 self.custom_fingers.remove(&id);
                 self.fingers.remove(&id);
-                if !self.custom_fingers.values().any(|k| *k == key) {
-                    self.custom_events.push((key, false));
+                // Release in reverse order, keeping shared modifier keys held.
+                for token in token_parts(&key).rev() {
+                    if !self.held_custom_tokens().any(|held| held == token) {
+                        self.custom_events.push((token.to_owned(), false));
+                    }
                 }
             }
             return true;
@@ -131,26 +169,32 @@ impl TouchControls {
             if key == "key.keyboard.unknown" {
                 return false;
             }
-            let pressed = !self.custom_fingers.values().any(|k| *k == key);
+            // User-selected order matters for modifier chords such as F3+B.
+            let newly_held: Vec<_> = token_parts(&key)
+                .filter(|token| !self.held_custom_tokens().any(|held| held == *token))
+                .map(str::to_owned)
+                .collect();
             self.custom_fingers.insert(id, key.clone());
             self.fingers.insert(id, (Role::Ignore, point));
-            if pressed {
-                self.custom_events.push((key, true));
-            }
+            self.custom_events
+                .extend(newly_held.into_iter().map(|token| (token, true)));
             self.clicked = true;
             return true;
         }
         false
     }
     pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
-        self.custom_fingers.values().map(String::as_str)
+        self.custom_fingers
+            .values()
+            .flat_map(|token| token_parts(token))
     }
     pub fn key_events(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut self.custom_events)
     }
     pub(super) fn clear_custom(&mut self) {
         let keys: std::collections::BTreeSet<_> = std::mem::take(&mut self.custom_fingers)
-            .into_values()
+            .values()
+            .flat_map(|token| token_parts(token).map(str::to_owned))
             .collect();
         self.custom_events
             .extend(keys.into_iter().map(|k| (k, false)));
@@ -187,6 +231,41 @@ impl TouchControls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chords_validate_and_shared_keys_release_after_last_owner() {
+        assert!(CustomButton::valid_token(
+            "chord:key.keyboard.f3+key.keyboard.b"
+        ));
+        assert!(!CustomButton::valid_token(
+            "chord:key.keyboard.f3+key.keyboard.f3"
+        ));
+        assert!(!CustomButton::valid_token("chord:key.keyboard.f3+invalid"));
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.settings.custom_buttons.push(CustomButton::new(
+            "chord:key.keyboard.f3+key.keyboard.b".into(),
+            0,
+        ));
+        t.settings
+            .custom_buttons
+            .push(CustomButton::new("key.keyboard.f3".into(), 1));
+        let p0 = t.custom_placement(0).center;
+        let p1 = t.custom_placement(1).center;
+        assert!(t.custom_update(1, p0, true, false));
+        assert_eq!(
+            t.key_events(),
+            [
+                ("key.keyboard.f3".into(), true),
+                ("key.keyboard.b".into(), true)
+            ]
+        );
+        assert!(t.custom_update(2, p1, true, false));
+        assert!(t.key_events().is_empty());
+        assert!(t.custom_update(1, p0, false, true));
+        assert_eq!(t.key_events(), [("key.keyboard.b".into(), false)]);
+        t.clear();
+        assert_eq!(t.key_events(), [("key.keyboard.f3".into(), false)]);
+    }
     #[test]
     fn inventory_modifier_and_mouse_hold_independently_and_cancel_cleanly() {
         let mut t = TouchControls::default();
