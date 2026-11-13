@@ -457,11 +457,6 @@ impl Game<'_> {
         }
         self.auto_mlg.hotkey_on = !self.auto_mlg.hotkey_on;
         self.auto_mlg.pending = None;
-        let state = if self.auto_mlg.hotkey_on { "ON" } else { "OFF" };
-        self.titles.set_overlay(
-            horizon_client::text::Text::literal(format!("Auto water bucket: {state}")),
-            false,
-        );
         true
     }
     /// The HDR settings key (`Graphics::hdr_key`): opens Graphics: HDR from the game, where
