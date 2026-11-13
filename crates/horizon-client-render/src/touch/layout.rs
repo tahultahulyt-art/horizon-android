@@ -400,6 +400,29 @@ impl Settings {
                 button.shape = 1.0;
             }
             button.shape = button.shape.clamp(0.1, 8.0);
+            if let Some(style) = &mut button.decoration {
+                for radius in style
+                    .corners
+                    .iter_mut()
+                    .chain(style.pressed_corners.iter_mut())
+                {
+                    *radius = if radius.is_finite() {
+                        radius.clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    };
+                }
+                style.border = if style.border.is_finite() {
+                    style.border.clamp(0.0, 20.0)
+                } else {
+                    0.0
+                };
+                style.pressed_border = if style.pressed_border.is_finite() {
+                    style.pressed_border.clamp(0.0, 20.0)
+                } else {
+                    0.0
+                };
+            }
             for p in &mut button.layouts {
                 p.sanitize();
             }
