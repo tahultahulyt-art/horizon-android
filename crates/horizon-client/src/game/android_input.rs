@@ -155,6 +155,12 @@ impl Game<'_> {
     }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
+            if name == "launcher:keyboard" {
+                if down {
+                    self.android_show_keyboard();
+                }
+                continue;
+            }
             if let Some(button) = horizon_client::keybinds::mouse_button(&name) {
                 if let Err(error) = self.android_custom_mouse(button, down) {
                     log::warn!("Custom touch mouse: {error}");
