@@ -29,6 +29,8 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) custom_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
+    pub(super) custom_mapped_keys: std::collections::HashSet<KeyCode>,
+    #[cfg(target_os = "android")]
     pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
     last_input_mode: Option<horizon_client::android_gamepad::InputMode>,
@@ -161,6 +163,14 @@ mod hardware {
 impl Pads {
     /// Include releases delayed until the next simulation tick.
     pub(super) fn holds_action(&self, settings: &gamepad::PadSettings, action: &str) -> bool {
+        // OS modifiers do not include virtual touch keys. Preserve their logical
+        // hold through modifier reconciliation until their last owner releases.
+        #[cfg(target_os = "android")]
+        if key_code(KeyBinds::default_of(action))
+            .is_some_and(|key| self.custom_mapped_keys.contains(&key))
+        {
+            return true;
+        }
         settings.binding(action).is_some_and(|button| {
             self.edges.is_held(button) || self.late_releases.contains(&button)
         })
