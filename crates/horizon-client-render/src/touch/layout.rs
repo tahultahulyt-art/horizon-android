@@ -388,7 +388,7 @@ impl Settings {
         } else {
             32.0
         };
-        self.custom_buttons.truncate(32);
+        self.custom_buttons.truncate(64);
         self.custom_buttons
             .retain(|b| super::CustomButton::valid_token(&b.key));
         for button in &mut self.custom_buttons {
