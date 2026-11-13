@@ -209,7 +209,7 @@ impl Opt {
             Opt::TouchOffhand => "Swap hands button",
             Opt::TouchShield => "Raise shield with",
             Opt::TouchButtonScale => "Control button size",
-            Opt::TouchControlOpacity => "Control opacity",
+            Opt::TouchControlOpacity => "Buttons transparency",
             Opt::TouchCursorScale => "Virtual cursor size",
             Opt::TouchInteract => "Interact button",
             Opt::TouchLeftHand => "Left handed",
@@ -370,7 +370,7 @@ impl Opt {
             Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 10.0),
             Opt::TouchMouseSensitivity => unit(s.touch.virtual_mouse_sensitivity, 0.25, 3.0),
             Opt::TouchButtonScale => unit(s.touch.button_scale, 0.5, 2.0),
-            Opt::TouchControlOpacity => unit(s.touch.control_opacity, 0.0, 1.0),
+            Opt::TouchControlOpacity => unit(1.0 - s.touch.control_opacity, 0.0, 1.0),
             Opt::TouchCursorScale => unit(s.touch.cursor_scale, 0.5, 3.0),
             Opt::Fov => unit(s.fov, 30.0, 110.0),
             Opt::RenderDistance => unit(
@@ -527,7 +527,9 @@ impl Opt {
                     .to_owned(),
             ),
             Opt::TouchCircleSize => Some(format!("{} px", s.touch.circle_size.round())),
-            Opt::TouchControlOpacity => Some(format!("{:.0}%", s.touch.control_opacity * 100.0)),
+            Opt::TouchControlOpacity => {
+                Some(format!("{:.0}%", (1.0 - s.touch.control_opacity) * 100.0))
+            }
             Opt::TouchCursorScale => Some(format!("{:.0}%", s.touch.cursor_scale * 100.0)),
             Opt::TouchAttackSide => Some(
                 if s.touch.attack_indicator_left {
@@ -1020,7 +1022,7 @@ impl Opt {
             Opt::TouchSensitivityVertical => s.touch.sensitivity_vertical = 0.1 + v * 9.9,
             Opt::TouchMouseSensitivity => s.touch.virtual_mouse_sensitivity = 0.25 + v * 2.75,
             Opt::TouchButtonScale => s.touch.button_scale = 0.5 + v * 1.5,
-            Opt::TouchControlOpacity => s.touch.control_opacity = v,
+            Opt::TouchControlOpacity => s.touch.control_opacity = 1.0 - v,
             Opt::TouchCursorScale => s.touch.cursor_scale = 0.5 + v * 2.5,
             Opt::FovEffects | Opt::DarknessPulsing => s.file.set(
                 self.file_key().unwrap(),
@@ -2777,6 +2779,7 @@ impl OptionsUi {
                 let controls = {
                     let mut controls = controls;
                     controls.push(Opt::TouchAutoSprint);
+                    controls.push(Opt::TouchControlOpacity);
                     controls
                 };
                 rows.extend(pairs(&controls));
