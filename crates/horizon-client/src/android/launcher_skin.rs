@@ -147,7 +147,7 @@ pub fn shell(ui: &mut Ui, targets: &mut Vec<([f32; 4], Action)>, page: Page, acc
         if w < 700.0 { 20.0 } else { 27.0 },
         hx,
         22.0,
-        ACCENT,
+        CYAN,
         "Android",
     );
     label(ui, 12.0, x, 57.0, MUTED, "0.7.7  /  Minecraft Launcher");
@@ -704,4 +704,4 @@ pub fn home(
         label(ui, 11.0, tx, fy, MUTED, text);
         targets.push(([tx - 8.0, fy - 9.0, tw + 16.0, 30.0], Action::Page(page)));
     }
-        }
+}
