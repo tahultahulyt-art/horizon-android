@@ -202,6 +202,7 @@ impl Opt {
             Opt::TouchVerticalMargin => "HUD margins: top / bottom",
             Opt::TouchSensitivity => "Touch sensitivity",
             Opt::TouchAimStabilizer => "Shield Mode",
+            Opt::TouchAimStabilizerStrength => "Shield Mode strength",
             Opt::TouchAimAssist => "Target Stick",
             Opt::TouchAimAssistStrength => "Target Stick strength",
             Opt::TouchSensitivityHorizontal => "Horizontal sensitivity",
@@ -364,6 +365,7 @@ impl Opt {
             Opt::TouchVerticalMargin => unit(s.touch.vertical_margin, 0.0, 0.12),
             Opt::DebugGuiScale => unit(s.file.int("debugGuiScale").max(0) as f32, 0.0, 6.0),
             Opt::AndroidGyroSensitivity => unit(s.touch.gyro_sensitivity, 0.1, 3.0),
+            Opt::TouchAimStabilizerStrength => unit(s.touch.aim_stabilizer_strength, 0.0, 1.0),
             Opt::TouchAimAssistStrength => unit(s.touch.aim_assist_strength, 0.0, 0.3),
             Opt::TouchSensitivity => unit(s.touch.sensitivity, 0.1, 10.0),
             Opt::TouchSensitivityHorizontal => unit(s.touch.sensitivity_horizontal, 0.1, 10.0),
@@ -569,6 +571,9 @@ impl Opt {
             ),
             Opt::TouchMouseSensitivity => {
                 Some(format!("{:.0}%", s.touch.virtual_mouse_sensitivity * 100.0))
+            }
+            Opt::TouchAimStabilizerStrength => {
+                Some(format!("{:.0}%", s.touch.aim_stabilizer_strength * 100.0))
             }
             Opt::TouchAimAssistStrength => {
                 Some(format!("{:.0}%", s.touch.aim_assist_strength * 100.0))
@@ -1016,6 +1021,7 @@ impl Opt {
                 crate::options_file::V::Int(step(0.0, 6.0) as i32),
             ),
             Opt::AndroidGyroSensitivity => s.touch.gyro_sensitivity = 0.1 + v * 2.9,
+            Opt::TouchAimStabilizerStrength => s.touch.aim_stabilizer_strength = v,
             Opt::TouchAimAssistStrength => s.touch.aim_assist_strength = v * 0.3,
             Opt::TouchSensitivity => s.touch.sensitivity = 0.1 + v * 9.9,
             Opt::TouchSensitivityHorizontal => s.touch.sensitivity_horizontal = 0.1 + v * 9.9,
@@ -1869,6 +1875,7 @@ fn option_widget(s: &Settings, opt: Opt, x: f32, y: f32, w: f32) -> Widget {
         Opt::TouchSprintButton => {
             s.touch.mode != crate::touch::Mode::Dpad && !s.touch.sprint_with_joystick
         }
+        Opt::TouchAimStabilizerStrength => s.touch.aim_stabilizer,
         Opt::TouchAimAssist | Opt::TouchAimAssistStrength => {
             s.touch.aim_stabilizer && s.touch.crosshair()
         }
@@ -2101,6 +2108,11 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     if let Act::Cycle(Opt::TouchAimStabilizer) = act {
         tip = Some(Text::literal(
             "Smooths small touch movements. Adds a small input delay. No target tracking, lock-on or auto-attack. Default off.",
+        ));
+    }
+    if let Act::Cycle(Opt::TouchAimStabilizerStrength) = act {
+        tip = Some(Text::literal(
+            "How strongly Shield Mode smooths your swipes. Higher is smoother but slower to respond. Your finger still does all the aiming.",
         ));
     }
     if let Act::Cycle(Opt::GraphicsBackend) = act {
@@ -2802,6 +2814,7 @@ impl OptionsUi {
                     Opt::TouchAttackButtonLook,
                     Opt::TouchSensitivity,
                     Opt::TouchAimStabilizer,
+                    Opt::TouchAimStabilizerStrength,
                     Opt::TouchAimAssist,
                     Opt::TouchAimAssistStrength,
                     Opt::TouchSensitivityHorizontal,
