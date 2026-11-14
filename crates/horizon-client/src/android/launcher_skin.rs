@@ -6,13 +6,14 @@ use horizon_client::ui_theme::{Face, Ui};
 pub const fn ink(rgb: u32) -> u32 {
     0xff000000 | (rgb & 255) << 16 | (rgb & 0xff00) | (rgb >> 16)
 }
-pub const BG: u32 = ink(0x07060d);
-pub const PANEL: u32 = ink(0x181226);
-pub const BORDER: u32 = ink(0x38234f);
-pub const TEXT: u32 = ink(0xf5f1ff);
-pub const MUTED: u32 = ink(0xaaa3b8);
-pub const ACCENT: u32 = ink(0x913dff);
-pub const GREEN: u32 = ink(0x22e875);
+pub const BG: u32 = ink(0x0b0a1a);
+pub const PANEL: u32 = ink(0x171330);
+pub const BORDER: u32 = ink(0x322c52);
+pub const TEXT: u32 = ink(0xf2f0ff);
+pub const MUTED: u32 = ink(0xa9a6c4);
+pub const ACCENT: u32 = ink(0xa35cff);
+pub const GREEN: u32 = ink(0x34d399);
+pub const CYAN: u32 = ink(0x22d3ee);
 
 fn mix(a: u32, b: u32, t: f32) -> u32 {
     let mut out = 0xff000000;
@@ -37,8 +38,8 @@ fn label(ui: &mut Ui, size: f32, x: f32, y: f32, color: u32, text: &str) {
     ui.text(Face::Medium, size, x, y, color, text);
 }
 fn card(ui: &mut Ui, r: [f32; 4]) {
-    gradient(ui, r, ink(0x1d1530), ink(0x120e1e), 16.0);
-    ui.border(r[0], r[1], r[2], r[3], 16.0, BORDER);
+    gradient(ui, r, ink(0x1b1535), ink(0x110d22), 14.0);
+    ui.border(r[0], r[1], r[2], r[3], 14.0, BORDER);
 }
 pub fn button(
     ui: &mut Ui,
@@ -55,9 +56,9 @@ pub fn button(
             r[2] + 4.0,
             r[3] + 4.0,
             14.0,
-            ink(0x2b104a),
+            ink(0x241a4d),
         );
-        gradient(ui, r, ink(0x7731ff), ink(0xa258ff), 12.0);
+        gradient(ui, r, ink(0x8b2cf5), ink(0x22d3ee), 12.0);
     } else {
         card(ui, r);
     }
@@ -77,28 +78,28 @@ pub fn shell(ui: &mut Ui, targets: &mut Vec<([f32; 4], Action)>, page: Page, acc
     };
     ui.rounded(0.0, 0.0, w, h, 0.0, BG);
     // Original vector artwork and glows, no downloaded/copyrighted art.
-    ui.rounded(w - 360.0, -160.0, 500.0, 420.0, 210.0, ink(0x11091d));
-    ui.rounded(0.0, h - 160.0, 300.0, 300.0, 150.0, ink(0x10091a));
-    ui.rounded(0.0, 0.0, side, h, 0.0, ink(0x0b0814));
+    ui.rounded(w - 360.0, -160.0, 500.0, 420.0, 210.0, ink(0x150f2e));
+    ui.rounded(0.0, h - 160.0, 300.0, 300.0, 150.0, ink(0x0c1524));
+    ui.rounded(0.0, 0.0, side, h, 0.0, ink(0x0d0b1e));
     ui.rounded(side - 1.0, 0.0, 1.0, h, 0.0, BORDER);
     gradient(
         ui,
         [20.0, 20.0, 42.0, 42.0],
-        ink(0x9b5cff),
-        ink(0x5415d9),
+        ink(0x8b2cf5),
+        ink(0x22d3ee),
         12.0,
     );
     label(ui, 30.0, 29.0, 23.0, TEXT, "H");
     if side > 100.0 {
         label(ui, 14.0, 74.0, 24.0, TEXT, "Horizon");
-        label(ui, 12.0, 74.0, 44.0, ACCENT, "Android");
+        label(ui, 12.0, 74.0, 44.0, CYAN, "Android");
     }
     let step = ((h - 180.0) / 8.0).clamp(38.0, 56.0);
     for (i, p) in Page::ALL.iter().enumerate() {
         let y = 88.0 + i as f32 * step;
         let r = [12.0, y, side - 24.0, step - 6.0];
         if *p == page {
-            gradient(ui, r, ink(0x7d38ff), ink(0x5520c7), 12.0);
+            gradient(ui, r, ink(0x8b2cf5), ink(0x22d3ee), 12.0);
         }
         let size = if side < 100.0 { 12.0 } else { 15.0 };
         let name = p.name();
@@ -187,7 +188,7 @@ fn icon(ui: &mut Ui, r: [f32; 4], i: usize) {
         w,
         h,
         if i == 3 || i == 6 { w * 0.5 } else { 3.0 },
-        ink(0xb879ff),
+        ink(0xb79cff),
     );
     ui.rounded(
         x + w * 0.3,
@@ -195,13 +196,14 @@ fn icon(ui: &mut Ui, r: [f32; 4], i: usize) {
         w * 0.4,
         h * 0.4,
         1.0,
-        ink(0x442065),
+        ink(0x3a2a6e),
     );
 }
-/// Proper AARRGGBB from 0xRRGGBB (the `ink` helper above keeps its historic
-/// channel order for the sidebar shell it was tuned for).
+/// Pack 0xRRGGBB the way the renderer wants it - the same channel order
+/// `ink` produces (0xAABBGGRR). The previous non-swizzled version painted
+/// the whole home dashboard pink.
 pub const fn rgb(c: u32) -> u32 {
-    0xff000000 | c
+    ink(c)
 }
 /// Same colour with a new alpha (0.0 - 1.0).
 pub fn with_alpha(c: u32, a: f32) -> u32 {
