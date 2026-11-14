@@ -79,13 +79,6 @@ const KEYS: [(&str, KeyCode); 28] = [
 ];
 
 // Shared draw/hit rectangles: utility-style buttons at the lower right.
-fn mouse_button_rects(w: f32, h: f32) -> [([f32; 4], bool); 2] {
-    [
-        ([w - 53.0, h - 51.0, 50.0, 20.0], false),
-        ([w - 53.0, h - 27.0, 50.0, 20.0], true),
-    ]
-}
-
 /// Shared outlined pointer for virtual mouse and controller menus.
 pub fn draw_pointer(batch: &mut HudBatch, atlas: &HudAtlas, cursor: (f32, f32)) {
     draw_pointer_scaled(batch, atlas, cursor, 1.0);
@@ -324,37 +317,11 @@ impl TouchUi {
             Gesture::None
         }
     }
-    pub fn action(&self, w: f32, h: f32, p: [f32; 2], menu: bool) -> Option<Action> {
-        if menu && self.virtual_mouse {
-            for ([x, y, width, height], right) in mouse_button_rects(w, h) {
-                if (x..x + width).contains(&p[0]) && (y..y + height).contains(&p[1]) {
-                    return Some(Action::MouseButton(right));
-                }
-            }
-        }
-        if menu && (3.0..23.0).contains(&p[1]) && (w - 108.0..w - 56.0).contains(&p[0]) {
-            return Some(Action::VirtualMouse);
-        }
-        if (3.0..23.0).contains(&p[1]) {
-            if menu && (w - 53.0..w - 3.0).contains(&p[0]) {
-                return Some(Action::Key(KeyCode::Escape));
-            }
-            if (3.0..36.0).contains(&p[0]) {
-                return Some(Action::More);
-            }
-            if self.expanded && (39.0..72.0).contains(&p[0]) {
-                return Some(Action::Key(KeyCode::F3));
-            }
-            if self.expanded && (75.0..108.0).contains(&p[0]) {
-                return Some(Action::Key(KeyCode::F5));
-            }
-            if self.expanded && (111.0..144.0).contains(&p[0]) {
-                return Some(Action::Key(KeyCode::KeyT));
-            }
-            if self.expanded && (147.0..186.0).contains(&p[0]) {
-                return Some(Action::Keyboard);
-            }
-        }
+    pub fn action(&self, _w: f32, _h: f32, p: [f32; 2], _menu: bool) -> Option<Action> {
+        // The corner "..." strip and the menu-mode Mouse/Back/LMB/RMB overlay
+        // buttons were removed at the player's request, so no hit area for
+        // them remains here; taps in those spots fall through to the screen
+        // or the controls underneath.
         if self.expanded && (3.0..203.0).contains(&p[0]) && (27.0..219.0).contains(&p[1]) {
             let i = ((p[1] - 27.0) / 24.0) as usize * 4 + ((p[0] - 3.0) / 50.0) as usize;
             if i == 28 {
@@ -368,15 +335,17 @@ impl TouchUi {
         }
         None
     }
-    pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas, menu: bool) {
+    pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas, _menu: bool) {
+        // The "..." corner strip and the menu-mode Mouse/Back/LMB/RMB overlay
+        // buttons were removed at the player's request; nothing draws here
+        // unless the (now unreachable) expanded grid is open.
         for (label, x, width) in [
-            ("...", 3.0, 33.0),
             ("F3", 39.0, 33.0),
             ("F5", 75.0, 33.0),
             ("Chat", 111.0, 33.0),
             ("Keys", 147.0, 39.0),
         ] {
-            if label != "..." && !self.expanded {
+            if !self.expanded {
                 continue;
             }
             button(
@@ -391,28 +360,6 @@ impl TouchUi {
                 3.0,
                 width,
             );
-        }
-        if menu {
-            button(
-                b,
-                a,
-                if self.virtual_mouse {
-                    "Mouse ON"
-                } else {
-                    "Mouse"
-                },
-                b.width - 108.0,
-                3.0,
-                50.0,
-            );
-        }
-        if menu && self.virtual_mouse {
-            for ([x, y, width, _], right) in mouse_button_rects(b.width, b.height) {
-                button(b, a, if right { "RMB" } else { "LMB" }, x, y, width);
-            }
-        }
-        if menu {
-            button(b, a, "Back", b.width - 53.0, 3.0, 50.0);
         }
         if self.expanded {
             button(
@@ -512,51 +459,7 @@ mod tests {
         );
         assert_eq!(ui.relative_click(true), None);
     }
-    #[test]
-    fn mouse_toggle_is_available_without_a_setting_and_clicks_stay_on_right() {
-        let mut ui = TouchUi::default();
-        assert!(matches!(
-            ui.action(427.0, 267.0, [350.0, 10.0], true),
-            Some(Action::VirtualMouse)
-        ));
-        assert!(ui.action(427.0, 267.0, [350.0, 10.0], false).is_none());
-        ui.virtual_mouse = true;
-        assert!(matches!(
-            ui.action(427.0, 267.0, [399.0, 226.0], true),
-            Some(Action::MouseButton(false))
-        ));
-        assert!(matches!(
-            ui.action(427.0, 267.0, [399.0, 250.0], true),
-            Some(Action::MouseButton(true))
-        ));
-        assert!(ui.action(427.0, 267.0, [213.0, 250.0], true).is_none());
-    }
-    #[test]
-    fn menu_mouse_buttons_share_ownership_and_release_outside_their_bounds() {
-        let mut ui = TouchUi {
-            virtual_mouse: true,
-            ..Default::default()
-        };
-        assert!(matches!(
-            ui.action(427.0, 267.0, [399.0, 226.0], true),
-            Some(Action::MouseButton(false))
-        ));
-        assert!(matches!(
-            ui.action(427.0, 267.0, [399.0, 250.0], true),
-            Some(Action::MouseButton(true))
-        ));
-        assert!(ui.action(427.0, 267.0, [399.0, 226.0], false).is_none());
-        assert!(ui.press_mouse(1, false));
-        assert!(!ui.press_mouse(2, false));
-        assert!(ui.press_mouse(3, true));
-        assert_eq!(ui.release_mouse(1), Some((false, false)));
-        assert_eq!(ui.release_mouse(2), Some((false, true)));
-        assert_eq!(ui.release_all_mouse(), vec![true]);
-        assert_eq!(ui.release_mouse(3), None);
-        ui.virtual_mouse = false;
-        assert!(ui.action(427.0, 267.0, [399.0, 226.0], true).is_none());
-    }
-    #[test]
+
     fn virtual_mouse_moves_relatively_and_dragging_never_clicks() {
         let mut ui = TouchUi::default();
         let cursor = [100.0, 80.0];
