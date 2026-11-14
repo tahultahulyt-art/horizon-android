@@ -7,7 +7,7 @@
 //! client predicts its own movement; the server stays authoritative for
 //! everything else.
 use super::remote_chunks::{ChunkDecoder, ChunkFormat, Next};
-use super::{Dim, Game, Mining, RocketStage, Screen};
+use super::{ChestStage, Dim, Game, Mining, RocketStage, Screen};
 use horizon_client::first_person::{Hand, SwingAnimation};
 use horizon_client::{
     Result,
@@ -5802,6 +5802,7 @@ impl Game<'_> {
         // was the client's alone, and the server saw a jump its keys didn't allow.
         let auto_jumped = self.player.as_ref().is_some_and(|p| p.was_auto_jump);
         self.rocket_launch_tick();
+        self.chest_mace_tick();
         self.auto_mlg_prepare();
         self.remote_send_state(input | u8::from(auto_jumped) << 4);
         self.auto_mlg_fire();
@@ -6736,6 +6737,150 @@ impl Game<'_> {
                     let _ = self.use_with_hand();
                 }
                 self.rocket_launch_stop();
+            }
+        }
+    }
+    /// The B key starts the swap: one press in a world, while playing and
+    /// not riding, runs `chest_mace_tick`'s steps. Silent like the R
+    /// rocket launch: nothing on the screen, nothing in chat, nothing saved.
+    pub(super) fn chest_mace_key_press(&mut self, key: KeyCode) -> bool {
+        if key != KeyCode::KeyB
+            || self.screen != Screen::Playing
+            || (self.remote.is_none() && self.integrated.is_none())
+            || self.spectator()
+            || self.riding.is_some()
+            || self.sleeping.is_some()
+        {
+            return false;
+        }
+        self.chest_mace_stage(ChestStage::ChestToHand);
+        true
+    }
+    fn chest_mace_stage(&mut self, stage: ChestStage) {
+        self.chest_mace.stage = stage;
+        self.chest_mace.stage_ticks = 0;
+    }
+    /// A chestplate's item id: any tier's `*_chestplate`.
+    fn is_chestplate(id: &str) -> bool {
+        id.starts_with("minecraft:") && id.ends_with("_chestplate")
+    }
+    /// `ChestMace`'s tick, before the tick's state goes out: one step a
+    /// tick, and every step is what a player would do — a hotbar swap or
+    /// an item use — so a server sees a fast player's clicks, spaced like
+    /// them. The key never attacks: the hit is the player's own click. A
+    /// screen opening, a ride or 20 stuck ticks end the run; a missing
+    /// chestplate only skips the armor step, a missing mace ends it
+    /// silently.
+    fn chest_mace_tick(&mut self) {
+        if self.chest_mace.stage == ChestStage::Off {
+            return;
+        }
+        if self.screen != Screen::Playing
+            || self.sleeping.is_some()
+            || self.riding.is_some()
+            || self.spectator()
+        {
+            self.chest_mace_stage(ChestStage::Off);
+            return;
+        }
+        self.chest_mace.stage_ticks += 1;
+        if self.chest_mace.stage_ticks > 20 || self.player.is_none() {
+            self.chest_mace_stage(ChestStage::Off);
+            return;
+        }
+        let chest_worn = self.armor[1]
+            .as_ref()
+            .is_some_and(|s| Self::is_chestplate(&s.item));
+        let held = self.stack_in(self.selected).map(|s| s.item.clone());
+        match self.chest_mace.stage {
+            ChestStage::Off => {}
+            ChestStage::ChestToHand => {
+                if chest_worn {
+                    self.chest_mace_stage(ChestStage::MaceToHand);
+                    return;
+                }
+                // A hotbar chestplate only takes selecting it; nothing moves.
+                if let Some(slot) = (0..9).find(|&s| {
+                    self.stack_in(s)
+                        .is_some_and(|st| Self::is_chestplate(&st.item))
+                }) {
+                    self.hotbar_select(slot);
+                    self.chest_mace_stage(ChestStage::EquipChest);
+                    return;
+                }
+                let slot = (0..36).find(|&s| {
+                    self.stack_in(s)
+                        .is_some_and(|st| Self::is_chestplate(&st.item))
+                });
+                let Some(slot) = slot else {
+                    // No chestplate anywhere: the mace half still runs.
+                    self.chest_mace_stage(ChestStage::MaceToHand);
+                    return;
+                };
+                if slot != self.selected
+                    && (self.carried.is_some()
+                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
+                {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                }
+                self.chest_mace_stage(ChestStage::EquipChest);
+            }
+            ChestStage::EquipChest => {
+                if chest_worn {
+                    self.chest_mace_stage(ChestStage::MaceToHand);
+                    return;
+                }
+                let Some(stack) = self.stack_in(self.selected).cloned() else {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                };
+                if !Self::is_chestplate(&stack.item) {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                }
+                if self.remote.is_some() {
+                    // `MultiPlayerGameMode.useItem` with the chestplate: the
+                    // UseItem alone, never a UseItemOn, so the chest or the
+                    // block in the crosshair is not opened or used.
+                    let sequence = self.next_sequence();
+                    let (yaw, pitch) = (self.yaw, self.pitch);
+                    self.send(S::UseItem(play::UseItem {
+                        hand: hand_id(Hand::Main),
+                        sequence,
+                        yaw,
+                        pitch,
+                    }));
+                    // Item.use: Equippable.swapWithEquipmentSlot runs on this
+                    // client too; the server confirms it.
+                    self.equip_from_hand(&stack);
+                } else {
+                    let _ = self.use_with_hand();
+                }
+                self.chest_mace_stage(ChestStage::MaceToHand);
+            }
+            ChestStage::MaceToHand => {
+                if held.as_deref() == Some("minecraft:mace") {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                }
+                if let Some(slot) = self.hotbar_find("minecraft:mace") {
+                    self.hotbar_select(slot);
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                }
+                let Some(slot) = self.inventory_find("minecraft:mace") else {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                };
+                if slot != self.selected
+                    && (self.carried.is_some()
+                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
+                {
+                    self.chest_mace_stage(ChestStage::Off);
+                    return;
+                }
+                self.chest_mace_stage(ChestStage::Off);
             }
         }
     }
