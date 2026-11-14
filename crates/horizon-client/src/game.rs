@@ -17791,6 +17791,7 @@ impl Game<'_> {
                                 elapsed.as_secs_f32(),
                                 active,
                                 self.pad.touch.settings.aim_stabilizer,
+                                self.pad.touch.settings.aim_stabilizer_strength,
                             );
                             let moved = self.pad.touch.stabilizer.take_motion();
                             let correction =
