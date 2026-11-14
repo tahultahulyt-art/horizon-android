@@ -2156,6 +2156,38 @@ enum RocketStage {
     /// Gliding: use the rocket.
     Fire,
 }
+/// The B key's one-press chestplate + mace ready (`game/remote.rs`'s
+/// chest_mace_*): with any chestplate in the inventory, B wears it (a worn
+/// elytra comes off to the hand), then takes a mace in hand. The attack
+/// stays the player's own click: the key never swings. Silent like the R
+/// rocket launch: no menu row, no overlay, nothing saved.
+struct ChestMace {
+    stage: ChestStage,
+    /// Ticks in the current stage; a stuck stage gives up.
+    stage_ticks: u32,
+}
+impl Default for ChestMace {
+    fn default() -> Self {
+        Self {
+            stage: ChestStage::Off,
+            stage_ticks: 0,
+        }
+    }
+}
+/// `ChestMace`'s step: one a tick, so a server's packets arrive spaced
+/// like a player's own clicks.
+#[derive(Default, PartialEq, Clone, Copy)]
+enum ChestStage {
+    /// No swap running.
+    #[default]
+    Off,
+    /// Swap a chestplate into the selected hotbar slot.
+    ChestToHand,
+    /// Use the held chestplate: it equips, a worn elytra comes to hand.
+    EquipChest,
+    /// Swap a mace into the selected slot.
+    MaceToHand,
+}
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
     res: Arc<Resources>,
@@ -2509,6 +2541,8 @@ struct Game<'a> {
     auto_mlg: AutoMlg,
     /// The R key's elytra + rocket launch (`game/remote.rs`'s rocket_launch_*).
     rocket_launch: RocketLaunch,
+    /// The B key's chestplate + mace ready (`game/remote.rs`'s chest_mace_*).
+    chest_mace: ChestMace,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -15484,6 +15518,7 @@ impl Game<'_> {
         }
         if self.auto_mlg_key_press(key)
             || self.rocket_launch_key_press(key)
+            || self.chest_mace_key_press(key)
             || self.sort_key_press(key)
             || self.hdr_key_press(key)
         {
@@ -18312,6 +18347,7 @@ impl<'a> Game<'a> {
             settings,
             auto_mlg: AutoMlg::default(),
             rocket_launch: RocketLaunch::default(),
+            chest_mace: ChestMace::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,
