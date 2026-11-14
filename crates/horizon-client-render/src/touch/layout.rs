@@ -410,6 +410,21 @@ impl Settings {
             rocket.layouts = [Placement::new(0.66, 0.64, 0.105); 3];
             self.custom_buttons.push(rocket);
         }
+        // The chestplate + mace ready button (the B key), added once to
+        // layouts saved before it existed. Deleting it in the editor brings
+        // it back on the next start.
+        if !self
+            .custom_buttons
+            .iter()
+            .any(|b| b.key == "key.keyboard.b")
+            && self.custom_buttons.len() < 64
+        {
+            let mut chest =
+                super::CustomButton::new("key.keyboard.b".into(), self.custom_buttons.len());
+            chest.caption = "Mace".into();
+            chest.layouts = [Placement::new(0.775, 0.64, 0.105); 3];
+            self.custom_buttons.push(chest);
+        }
         for button in &mut self.custom_buttons {
             if !button.shape.is_finite() {
                 button.shape = 1.0;
