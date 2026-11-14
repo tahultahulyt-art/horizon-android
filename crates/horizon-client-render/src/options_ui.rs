@@ -2792,6 +2792,9 @@ impl OptionsUi {
                     let mut controls = controls;
                     controls.push(Opt::TouchAutoSprint);
                     controls.push(Opt::TouchControlOpacity);
+                    // Shield Mode toggle + strength, reachable from the normal Controls page.
+                    controls.push(Opt::TouchAimStabilizer);
+                    controls.push(Opt::TouchAimStabilizerStrength);
                     controls
                 };
                 rows.extend(pairs(&controls));
