@@ -102,6 +102,8 @@ pub(super) enum Action {
     ChooseWorkerLimit(u32),
     PerformanceHints,
     GpuProfile,
+    /// Feature tile that is not built yet: show a coming-soon toast.
+    ComingSoon(&'static str),
 }
 
 pub(super) fn button(
@@ -236,12 +238,19 @@ impl Launcher {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
         let mut shell_targets = Vec::new();
-        let inset = super::skin::shell(
-            &mut ui,
-            &mut shell_targets,
-            self.catalog.page,
-            &self.login.status(&self.catalog.config.name),
-        );
+        // The Play dashboard is the reference home design, full-screen without
+        // the sidebar. Installing and every other page keep the shell.
+        let dashboard = self.catalog.page == Page::Play && self.worker.is_none();
+        let inset = if dashboard {
+            0.0
+        } else {
+            super::skin::shell(
+                &mut ui,
+                &mut shell_targets,
+                self.catalog.page,
+                &self.login.status(&self.catalog.config.name),
+            )
+        };
         let body_start = ui.batch.vertices.len();
         ui.w -= inset;
         let (w, h) = (ui.w, ui.h);
@@ -252,8 +261,9 @@ impl Launcher {
                 &mut ui,
                 &mut self.targets,
                 horizon_client::official_install::ready(&self.home),
-                self.catalog.config.profile,
                 self.error.is_some(),
+                &self.catalog.config.name,
+                self.login.signed_in,
             );
         } else if page == Page::Play {
             use horizon_client::official_install::InstallStage;
@@ -1087,6 +1097,25 @@ impl Launcher {
                 horizon_client::hud::rgba(255, 255, 255, 48),
             );
         }
+        if let Some((start, name)) = self.toast {
+            let elapsed = start.elapsed().as_secs_f32();
+            if elapsed > 2.6 {
+                self.toast = None;
+            } else {
+                let fade = ((2.6 - elapsed) / 0.6).clamp(0.0, 1.0);
+                let text = format!("{name} - jald aa raha hai");
+                let tw = ui.measure(Face::Medium, 15.0, &text) + 60.0;
+                let tx = (ui.w - tw) * 0.5;
+                let ty = ui.h - 140.0;
+                let panel = super::skin::with_alpha(super::skin::PANEL, fade);
+                let accent = super::skin::with_alpha(super::skin::ACCENT, fade);
+                let ink = super::skin::with_alpha(super::skin::TEXT, fade);
+                ui.rounded(tx, ty, tw, 44.0, 22.0, panel);
+                ui.border(tx, ty, tw, 44.0, 22.0, accent);
+                ui.rounded(tx + 20.0, ty + 18.0, 8.0, 8.0, 4.0, accent);
+                ui.text(Face::Medium, 15.0, tx + 38.0, ty + 14.0, ink, &text);
+            }
+        }
         ui.finish();
 
         if !r.render(&game::loading_frame(&b))? && !b.patches.is_empty() {
@@ -1508,6 +1537,10 @@ impl Launcher {
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
             }
+            Some(Action::ComingSoon(name)) => {
+                self.toast = Some((std::time::Instant::now(), name));
+                self.catalog.status = format!("{name}: jald aa raha hai");
+            }
             Some(Action::Play) => {
                 self.edit_controls_launch = false;
                 self.action(events)?;
@@ -1789,4 +1822,4 @@ impl Launcher {
             self.edit_text(out);
         }
     }
-}
+                       }
