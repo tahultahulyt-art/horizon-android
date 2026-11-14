@@ -193,8 +193,11 @@ impl Game<'_> {
     }
     #[cfg(target_os = "android")]
     pub(super) fn android_inventory_controls(&self) -> bool {
-        self.settings.touch.inventory_controls
-            && matches!(self.screen, Screen::Inventory | Screen::Creative)
+        // The on-screen controls stay visible and usable over the inventory
+        // and creative screens: hiding them while a screen is open strands a
+        // touch player without his buttons. The `inventory_controls` setting
+        // no longer gates this.
+        matches!(self.screen, Screen::Inventory | Screen::Creative)
     }
     /// Once per loop iteration: read the pads and act on button changes.
     pub(super) fn poll_pads(&mut self, event_loop: &dyn EventLoopCtl) {
