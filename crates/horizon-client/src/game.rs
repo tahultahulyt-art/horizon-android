@@ -2109,6 +2109,53 @@ struct AutoMlg {
     /// The H key toggle; off at every start, the only switch.
     hotkey_on: bool,
 }
+
+/// The R key's one-press elytra + rocket launch (`game/remote.rs`'s
+/// rocket_launch_*): with an elytra and a firework rocket anywhere in the
+/// inventory, R equips the elytra, takes the rocket in hand, jumps, starts
+/// gliding and fires the rocket. Silent like the H water bucket: no menu
+/// row, no overlay, nothing saved.
+struct RocketLaunch {
+    stage: RocketStage,
+    /// Ticks in the current stage; a stuck stage gives up.
+    stage_ticks: u32,
+    /// The jump key the launch itself holds, so a Space the player holds is
+    /// never released by it.
+    synthetic_jump: bool,
+}
+impl Default for RocketLaunch {
+    fn default() -> Self {
+        Self {
+            stage: RocketStage::Off,
+            stage_ticks: 0,
+            synthetic_jump: false,
+        }
+    }
+}
+/// `RocketLaunch`'s step: one a tick, so a server's packets arrive spaced
+/// like a player's own clicks.
+#[derive(Default, PartialEq, Clone, Copy)]
+enum RocketStage {
+    /// No launch running.
+    #[default]
+    Off,
+    /// Swap the elytra into the selected hotbar slot.
+    ElytraToHand,
+    /// Use the held elytra: it equips, a worn chestplate comes to hand.
+    EquipElytra,
+    /// Swap a firework rocket into the selected slot.
+    RocketToHand,
+    /// Hold jump.
+    JumpPress,
+    /// Let jump go so the mid-air press is a fresh one.
+    JumpRelease,
+    /// Airborne: press jump to start gliding.
+    GlidePress,
+    /// The press went out; gliding starts or the launch failed.
+    GlideWait,
+    /// Gliding: use the rocket.
+    Fire,
+}
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
     res: Arc<Resources>,
@@ -2460,6 +2507,8 @@ struct Game<'a> {
     settings: Settings,
     /// The extras "Auto water bucket" (`game/remote.rs`'s auto_mlg_*).
     auto_mlg: AutoMlg,
+    /// The R key's elytra + rocket launch (`game/remote.rs`'s rocket_launch_*).
+    rocket_launch: RocketLaunch,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -15433,7 +15482,11 @@ impl Game<'_> {
         if self.screen == Screen::Mod && self.mod_screen_key(key) {
             return Ok(());
         }
-        if self.auto_mlg_key_press(key) || self.sort_key_press(key) || self.hdr_key_press(key) {
+        if self.auto_mlg_key_press(key)
+            || self.rocket_launch_key_press(key)
+            || self.sort_key_press(key)
+            || self.hdr_key_press(key)
+        {
             return Ok(());
         }
         if self.remote.is_some() && self.remote_key(key)? {
@@ -18258,6 +18311,7 @@ impl<'a> Game<'a> {
             hand_strength: Default::default(),
             settings,
             auto_mlg: AutoMlg::default(),
+            rocket_launch: RocketLaunch::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,
