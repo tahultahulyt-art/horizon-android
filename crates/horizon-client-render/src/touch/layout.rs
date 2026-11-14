@@ -395,6 +395,21 @@ impl Settings {
         self.custom_buttons.truncate(64);
         self.custom_buttons
             .retain(|b| super::CustomButton::valid_token(&b.key));
+        // The one-key elytra + rocket launch's touch button, added once to
+        // layouts saved before it existed. Deleting it in the editor brings
+        // it back on the next start.
+        if !self
+            .custom_buttons
+            .iter()
+            .any(|b| b.key == "key.keyboard.r")
+            && self.custom_buttons.len() < 64
+        {
+            let mut rocket =
+                super::CustomButton::new("key.keyboard.r".into(), self.custom_buttons.len());
+            rocket.caption = "Rocket".into();
+            rocket.layouts = [Placement::new(0.66, 0.64, 0.105); 3];
+            self.custom_buttons.push(rocket);
+        }
         for button in &mut self.custom_buttons {
             if !button.shape.is_finite() {
                 button.shape = 1.0;
