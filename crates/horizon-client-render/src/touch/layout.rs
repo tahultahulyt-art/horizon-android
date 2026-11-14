@@ -139,6 +139,8 @@ pub struct Settings {
     pub sensitivity: f32,
     /// Smooth real finger input, never target-aware.
     pub aim_stabilizer: bool,
+    /// 0-1 smoothing window for Shield Mode; user-controlled only.
+    pub aim_stabilizer_strength: f32,
     pub aim_assist: bool,
     pub aim_assist_strength: f32,
     pub sensitivity_horizontal: f32,
@@ -235,6 +237,7 @@ impl Default for Settings {
             swap_jump_sneak: false,
             sensitivity: 1.0,
             aim_stabilizer: false,
+            aim_stabilizer_strength: 0.25,
             aim_assist: false,
             aim_assist_strength: 0.15,
             sensitivity_horizontal: 1.0,
@@ -345,6 +348,11 @@ impl Settings {
             self.aim_assist_strength.clamp(0.0, 0.3)
         } else {
             0.15
+        };
+        self.aim_stabilizer_strength = if self.aim_stabilizer_strength.is_finite() {
+            self.aim_stabilizer_strength.clamp(0.0, 1.0)
+        } else {
+            0.25
         };
         self.gyro_sensitivity = if self.gyro_sensitivity.is_finite() {
             self.gyro_sensitivity.clamp(0.1, 3.0)
@@ -526,6 +534,7 @@ mod tests {
         let mut settings: super::Settings = serde_json::from_str("{}").unwrap();
         assert!(!settings.aim_stabilizer);
         assert!(!settings.aim_assist);
+        assert_eq!(settings.aim_stabilizer_strength, 0.25);
         settings.aim_stabilizer = true;
         settings.aim_assist = true;
         let restored: super::Settings =
@@ -534,11 +543,15 @@ mod tests {
         assert!(restored.aim_assist);
         assert_eq!(restored.aim_assist_strength, 0.15);
         settings.aim_assist_strength = 10.0;
+        settings.aim_stabilizer_strength = 10.0;
         settings.sanitize();
         assert_eq!(settings.aim_assist_strength, 0.3);
+        assert_eq!(settings.aim_stabilizer_strength, 1.0);
         settings.aim_assist_strength = f32::NAN;
+        settings.aim_stabilizer_strength = f32::NAN;
         settings.sanitize();
         assert_eq!(settings.aim_assist_strength, 0.15);
+        assert_eq!(settings.aim_stabilizer_strength, 0.25);
         assert_eq!(restored.sensitivity, settings.sensitivity);
     }
     #[test]
