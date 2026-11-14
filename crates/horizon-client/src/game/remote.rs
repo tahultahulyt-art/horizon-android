@@ -7,7 +7,7 @@
 //! client predicts its own movement; the server stays authoritative for
 //! everything else.
 use super::remote_chunks::{ChunkDecoder, ChunkFormat, Next};
-use super::{Dim, Game, Mining, Screen};
+use super::{Dim, Game, Mining, RocketStage, Screen};
 use horizon_client::first_person::{Hand, SwingAnimation};
 use horizon_client::{
     Result,
@@ -5801,6 +5801,7 @@ impl Game<'_> {
         // jump for this tick: the server's prediction plays the jump from it. Sent as held, the jump
         // was the client's alone, and the server saw a jump its keys didn't allow.
         let auto_jumped = self.player.as_ref().is_some_and(|p| p.was_auto_jump);
+        self.rocket_launch_tick();
         self.auto_mlg_prepare();
         self.remote_send_state(input | u8::from(auto_jumped) << 4);
         self.auto_mlg_fire();
@@ -6494,6 +6495,248 @@ impl Game<'_> {
         );
         for (p, v) in spawned {
             self.particles.add(&options, p, v);
+        }
+    }
+    /// The R key starts the launch: one press in a world, while playing and
+    /// not riding, runs `rocket_launch_tick`'s steps. Silent like the H
+    /// water bucket: nothing on the screen, nothing in chat, nothing saved.
+    pub(super) fn rocket_launch_key_press(&mut self, key: KeyCode) -> bool {
+        if key != KeyCode::KeyR
+            || self.screen != Screen::Playing
+            || (self.remote.is_none() && self.integrated.is_none())
+            || self.spectator()
+            || self.riding.is_some()
+            || self.sleeping.is_some()
+        {
+            return false;
+        }
+        self.rocket_launch_stop();
+        self.rocket_launch_stage(RocketStage::ElytraToHand);
+        true
+    }
+    /// A launch ends: the stage and the launch's own jump key go away.
+    fn rocket_launch_stop(&mut self) {
+        self.rocket_launch.stage = RocketStage::Off;
+        if self.rocket_launch.synthetic_jump {
+            self.keys.remove(&KeyCode::Space);
+            self.rocket_launch.synthetic_jump = false;
+        }
+    }
+    fn rocket_launch_stage(&mut self, stage: RocketStage) {
+        self.rocket_launch.stage = stage;
+        self.rocket_launch.stage_ticks = 0;
+    }
+    /// The first hotbar slot holding `id`.
+    fn hotbar_find(&self, id: &str) -> Option<usize> {
+        (0..9).find(|&s| self.stack_in(s).is_some_and(|st| &*st.item == id))
+    }
+    /// The first hotbar or inventory slot holding `id`.
+    fn inventory_find(&self, id: &str) -> Option<usize> {
+        (0..36).find(|&s| self.stack_in(s).is_some_and(|st| &*st.item == id))
+    }
+    /// Selects a hotbar slot, exactly a number key's press: the server's
+    /// SetCarriedItem goes out with the tick's state.
+    fn hotbar_select(&mut self, slot: usize) {
+        self.selected = slot;
+    }
+    /// `RocketLaunch`'s tick, before the tick's state goes out: one step a
+    /// tick, and every step is what a player would do — a hotbar swap, an
+    /// item use, a jump press — so a server sees a fast player's clicks,
+    /// spaced like them. A screen opening, a death, a ride or 20 stuck
+    /// ticks end the run; a missing elytra or rocket ends it silently.
+    fn rocket_launch_tick(&mut self) {
+        if self.rocket_launch.stage == RocketStage::Off {
+            return;
+        }
+        if self.screen != Screen::Playing
+            || self.sleeping.is_some()
+            || self.riding.is_some()
+            || self.spectator()
+        {
+            self.rocket_launch_stop();
+            return;
+        }
+        self.rocket_launch.stage_ticks += 1;
+        if self.rocket_launch.stage_ticks > 20 {
+            self.rocket_launch_stop();
+            return;
+        }
+        let Some(p) = self.player.as_ref() else {
+            self.rocket_launch_stop();
+            return;
+        };
+        let (fall_flying, on_ground) = (p.fall_flying, p.ground.on_ground);
+        let elytra_worn = self.armor[1]
+            .as_ref()
+            .is_some_and(|s| &*s.item == "minecraft:elytra");
+        let held = self.stack_in(self.selected).map(|s| s.item.clone());
+        match self.rocket_launch.stage {
+            RocketStage::Off => {}
+            RocketStage::ElytraToHand => {
+                if elytra_worn {
+                    self.rocket_launch_stage(RocketStage::RocketToHand);
+                    return;
+                }
+                // A hotbar elytra only takes selecting it; nothing moves.
+                if let Some(slot) = self.hotbar_find("minecraft:elytra") {
+                    self.hotbar_select(slot);
+                    self.rocket_launch_stage(RocketStage::EquipElytra);
+                    return;
+                }
+                let Some(slot) = self.inventory_find("minecraft:elytra") else {
+                    self.rocket_launch_stop();
+                    return;
+                };
+                if slot != self.selected
+                    && (self.carried.is_some()
+                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
+                {
+                    self.rocket_launch_stop();
+                    return;
+                }
+                self.rocket_launch_stage(RocketStage::EquipElytra);
+            }
+            RocketStage::EquipElytra => {
+                if elytra_worn {
+                    self.rocket_launch_stage(RocketStage::RocketToHand);
+                    return;
+                }
+                let Some(stack) = self.stack_in(self.selected).cloned() else {
+                    self.rocket_launch_stop();
+                    return;
+                };
+                if &*stack.item != "minecraft:elytra" {
+                    self.rocket_launch_stop();
+                    return;
+                }
+                if self.remote.is_some() {
+                    // `MultiPlayerGameMode.useItem` with the elytra: the
+                    // UseItem alone, never a UseItemOn, so the chest or the
+                    // block in the crosshair is not opened or used.
+                    let sequence = self.next_sequence();
+                    let (yaw, pitch) = (self.yaw, self.pitch);
+                    self.send(S::UseItem(play::UseItem {
+                        hand: hand_id(Hand::Main),
+                        sequence,
+                        yaw,
+                        pitch,
+                    }));
+                    // Item.use: Equippable.swapWithEquipmentSlot runs on this
+                    // client too; the server confirms it.
+                    self.equip_from_hand(&stack);
+                } else {
+                    let _ = self.use_with_hand();
+                }
+                self.rocket_launch_stage(RocketStage::RocketToHand);
+            }
+            RocketStage::RocketToHand => {
+                if held.as_deref() == Some("minecraft:firework_rocket") {
+                    self.rocket_launch_stage(RocketStage::JumpPress);
+                    return;
+                }
+                if let Some(slot) = self.hotbar_find("minecraft:firework_rocket") {
+                    self.hotbar_select(slot);
+                    self.rocket_launch_stage(RocketStage::JumpPress);
+                    return;
+                }
+                let Some(slot) = self.inventory_find("minecraft:firework_rocket") else {
+                    self.rocket_launch_stop();
+                    return;
+                };
+                if slot != self.selected
+                    && (self.carried.is_some()
+                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
+                {
+                    self.rocket_launch_stop();
+                    return;
+                }
+                self.rocket_launch_stage(RocketStage::JumpPress);
+            }
+            RocketStage::JumpPress => {
+                if fall_flying {
+                    self.rocket_launch_stage(RocketStage::Fire);
+                    return;
+                }
+                if !on_ground {
+                    self.rocket_launch_stage(RocketStage::GlidePress);
+                    return;
+                }
+                if !self.keys.contains(&KeyCode::Space) {
+                    self.keys.insert(KeyCode::Space);
+                    self.rocket_launch.synthetic_jump = true;
+                }
+                self.rocket_launch_stage(RocketStage::JumpRelease);
+            }
+            RocketStage::JumpRelease => {
+                if self.rocket_launch.synthetic_jump {
+                    self.keys.remove(&KeyCode::Space);
+                    self.rocket_launch.synthetic_jump = false;
+                }
+                self.rocket_launch_stage(RocketStage::GlidePress);
+            }
+            RocketStage::GlidePress => {
+                if fall_flying {
+                    self.rocket_launch_stage(RocketStage::Fire);
+                    return;
+                }
+                if on_ground {
+                    // The jump never left the ground (a ceiling, water).
+                    self.rocket_launch_stop();
+                    return;
+                }
+                if self.keys.contains(&KeyCode::Space) && !self.rocket_launch.synthetic_jump {
+                    // The player's own held jump: a fresh press edge needs it
+                    // back first; wait (the stage's budget gives up).
+                    return;
+                }
+                if !self.rocket_launch.synthetic_jump {
+                    self.keys.insert(KeyCode::Space);
+                    self.rocket_launch.synthetic_jump = true;
+                }
+                self.rocket_launch_stage(RocketStage::GlideWait);
+            }
+            RocketStage::GlideWait => {
+                if self.rocket_launch.synthetic_jump {
+                    self.keys.remove(&KeyCode::Space);
+                    self.rocket_launch.synthetic_jump = false;
+                }
+                if fall_flying {
+                    self.rocket_launch_stage(RocketStage::Fire);
+                    return;
+                }
+                if on_ground {
+                    self.rocket_launch_stop();
+                    return;
+                }
+                // Still falling to the glide's start; the budget gives up.
+            }
+            RocketStage::Fire => {
+                if !fall_flying {
+                    self.rocket_launch_stop();
+                    return;
+                }
+                if held.as_deref() != Some("minecraft:firework_rocket") {
+                    self.rocket_launch_stage(RocketStage::RocketToHand);
+                    return;
+                }
+                if self.remote.is_some() {
+                    // FireworkRocketItem.use while gliding is the server's
+                    // boost; the UseItem alone, so a block in the crosshair
+                    // never gets the rocket placed on it.
+                    let sequence = self.next_sequence();
+                    let (yaw, pitch) = (self.yaw, self.pitch);
+                    self.send(S::UseItem(play::UseItem {
+                        hand: hand_id(Hand::Main),
+                        sequence,
+                        yaw,
+                        pitch,
+                    }));
+                    self.swing_arm();
+                } else {
+                    let _ = self.use_with_hand();
+                }
+                self.rocket_launch_stop();
+            }
         }
     }
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
