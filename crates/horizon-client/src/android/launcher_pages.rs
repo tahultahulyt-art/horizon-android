@@ -129,7 +129,7 @@ fn toggle(
         14.0,
         x,
         y + 11.0,
-        color::TEXT,
+        super::skin::MUTED,
         if on { "On" } else { "Off" },
     );
     ui.rounded(
@@ -138,7 +138,7 @@ fn toggle(
         48.0,
         24.0,
         12.0,
-        if on { color::TEXT } else { color::HOVER },
+        if on { super::skin::ACCENT } else { super::skin::BORDER },
     );
     ui.rounded(
         x + w - if on { 26.0 } else { 50.0 },
@@ -146,7 +146,7 @@ fn toggle(
         20.0,
         20.0,
         10.0,
-        if on { color::BG } else { color::TEXT },
+        if on { super::skin::TEXT } else { super::skin::MUTED },
     );
     targets.push(([x, y, w, h], action));
 }
@@ -606,6 +606,14 @@ impl Launcher {
                     if y < top || y + row_height - 4.0 > bottom {
                         continue;
                     }
+                    ui.rounded(
+                        20.0,
+                        y - 8.0,
+                        w - 40.0,
+                        if compact { 118.0 } else { 66.0 },
+                        14.0,
+                        super::skin::PANEL,
+                    );
                     let title = ui.fit_text(
                         Face::Medium,
                         19.0,
@@ -815,6 +823,14 @@ impl Launcher {
                 if y < 185.0 || y + if compact { 70.0 } else { 46.0 } > h - 130.0 {
                     continue;
                 }
+                ui.rounded(
+                    20.0,
+                    y - 6.0,
+                    w - 40.0,
+                    if compact { 86.0 } else { 68.0 },
+                    14.0,
+                    super::skin::PANEL,
+                );
                 ui.text(
                     Face::Regular,
                     16.0,
@@ -876,14 +892,6 @@ impl Launcher {
                         false,
                     );
                 }
-                ui.rounded(
-                    32.0,
-                    y + if compact { 78.0 } else { 62.0 },
-                    w - 64.0,
-                    1.0,
-                    0.0,
-                    color::BORDER,
-                );
             }
             button(
                 &mut ui,
@@ -1822,4 +1830,4 @@ impl Launcher {
             self.edit_text(out);
         }
     }
-                       }
+                }
