@@ -6531,10 +6531,6 @@ impl Game<'_> {
     fn hotbar_find(&self, id: &str) -> Option<usize> {
         (0..9).find(|&s| self.stack_in(s).is_some_and(|st| &*st.item == id))
     }
-    /// The first hotbar or inventory slot holding `id`.
-    fn inventory_find(&self, id: &str) -> Option<usize> {
-        (0..36).find(|&s| self.stack_in(s).is_some_and(|st| &*st.item == id))
-    }
     /// Selects a hotbar slot, exactly a number key's press: the server's
     /// SetCarriedItem goes out with the tick's state.
     fn hotbar_select(&mut self, slot: usize) {
@@ -6544,7 +6540,8 @@ impl Game<'_> {
     /// tick, and every step is what a player would do — a hotbar swap, an
     /// item use, a jump press — so a server sees a fast player's clicks,
     /// spaced like them. A screen opening, a death, a ride or 20 stuck
-    /// ticks end the run; a missing elytra or rocket ends it silently.
+    /// ticks end the run. A needed elytra or rocket missing from the
+    /// hotbar ends it silently.
     fn rocket_launch_tick(&mut self) {
         if self.rocket_launch.stage == RocketStage::Off {
             return;
@@ -6584,18 +6581,7 @@ impl Game<'_> {
                     self.rocket_launch_stage(RocketStage::EquipElytra);
                     return;
                 }
-                let Some(slot) = self.inventory_find("minecraft:elytra") else {
-                    self.rocket_launch_stop();
-                    return;
-                };
-                if slot != self.selected
-                    && (self.carried.is_some()
-                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
-                {
-                    self.rocket_launch_stop();
-                    return;
-                }
-                self.rocket_launch_stage(RocketStage::EquipElytra);
+                self.rocket_launch_stop();
             }
             RocketStage::EquipElytra => {
                 if elytra_worn {
@@ -6640,18 +6626,7 @@ impl Game<'_> {
                     self.rocket_launch_stage(RocketStage::JumpPress);
                     return;
                 }
-                let Some(slot) = self.inventory_find("minecraft:firework_rocket") else {
-                    self.rocket_launch_stop();
-                    return;
-                };
-                if slot != self.selected
-                    && (self.carried.is_some()
-                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
-                {
-                    self.rocket_launch_stop();
-                    return;
-                }
-                self.rocket_launch_stage(RocketStage::JumpPress);
+                self.rocket_launch_stop();
             }
             RocketStage::JumpPress => {
                 if fall_flying {
@@ -6768,9 +6743,8 @@ impl Game<'_> {
     /// tick, and every step is what a player would do — a hotbar swap or
     /// an item use — so a server sees a fast player's clicks, spaced like
     /// them. The key never attacks: the hit is the player's own click. A
-    /// screen opening, a ride or 20 stuck ticks end the run; a missing
-    /// chestplate only skips the armor step, a missing mace ends it
-    /// silently.
+    /// screen opening, a ride or 20 stuck ticks end the run. No hotbar
+    /// chestplate only skips the armor step; no hotbar mace ends it silently.
     fn chest_mace_tick(&mut self) {
         if self.chest_mace.stage == ChestStage::Off {
             return;
@@ -6808,23 +6782,8 @@ impl Game<'_> {
                     self.chest_mace_stage(ChestStage::EquipChest);
                     return;
                 }
-                let slot = (0..36).find(|&s| {
-                    self.stack_in(s)
-                        .is_some_and(|st| Self::is_chestplate(&st.item))
-                });
-                let Some(slot) = slot else {
-                    // No chestplate anywhere: the mace half still runs.
-                    self.chest_mace_stage(ChestStage::MaceToHand);
-                    return;
-                };
-                if slot != self.selected
-                    && (self.carried.is_some()
-                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
-                {
-                    self.chest_mace_stage(ChestStage::Off);
-                    return;
-                }
-                self.chest_mace_stage(ChestStage::EquipChest);
+                // No chestplate in the hotbar: the mace half still runs.
+                self.chest_mace_stage(ChestStage::MaceToHand);
             }
             ChestStage::EquipChest => {
                 if chest_worn {
@@ -6866,17 +6825,6 @@ impl Game<'_> {
                 }
                 if let Some(slot) = self.hotbar_find("minecraft:mace") {
                     self.hotbar_select(slot);
-                    self.chest_mace_stage(ChestStage::Off);
-                    return;
-                }
-                let Some(slot) = self.inventory_find("minecraft:mace") else {
-                    self.chest_mace_stage(ChestStage::Off);
-                    return;
-                };
-                if slot != self.selected
-                    && (self.carried.is_some()
-                        || !self.tweak_click(slot, self.selected as i32, Input::Swap))
-                {
                     self.chest_mace_stage(ChestStage::Off);
                     return;
                 }
