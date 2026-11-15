@@ -8,6 +8,31 @@
 //! everything else.
 use super::remote_chunks::{ChunkDecoder, ChunkFormat, Next};
 use super::{ChestStage, Dim, Game, Mining, RocketStage, Screen};
+/// CK's bounded sequence. No stage uses the selected totem or detonates an anchor.
+#[derive(Default)]
+pub(super) struct AnchorCombo {
+    stage: AnchorStage,
+    ticks: u32,
+    target: Option<[i32; 3]>,
+    dimension: Option<Dim>,
+    slots: [usize; 3],
+}
+#[derive(Clone, Copy, Default, PartialEq)]
+enum AnchorStage {
+    #[default]
+    Off,
+    SelectAnchor,
+    Place,
+    SelectGlowstone,
+    Charge,
+    SelectTotem,
+}
+const ANCHOR_ITEMS: [&str; 3] = [
+    "minecraft:respawn_anchor",
+    "minecraft:glowstone",
+    "minecraft:totem_of_undying",
+];
+
 use horizon_client::first_person::{Hand, SwingAnimation};
 use horizon_client::{
     Result,
@@ -5803,6 +5828,7 @@ impl Game<'_> {
         let auto_jumped = self.player.as_ref().is_some_and(|p| p.was_auto_jump);
         self.rocket_launch_tick();
         self.chest_mace_tick();
+        self.anchor_combo_tick();
         self.auto_mlg_prepare();
         self.remote_send_state(input | u8::from(auto_jumped) << 4);
         self.auto_mlg_fire();
@@ -6832,6 +6858,178 @@ impl Game<'_> {
             }
         }
     }
+    /// CK is K on a keyboard, or the CK touch button. Require every item in
+    /// the hotbar before doing anything. This is an automated sequence, not
+    /// separate manual clicks, and server rules still apply.
+    pub(super) fn anchor_combo_key_press(&mut self, key: KeyCode) -> bool {
+        if key != KeyCode::KeyK || self.screen != Screen::Playing {
+            return false;
+        }
+        // Repeated presses while a sequence is running do not queue another.
+        if self.anchor_combo.stage != AnchorStage::Off {
+            return true;
+        }
+        if !self.anchor_combo_allowed() {
+            return true;
+        }
+        let slots: Option<Vec<usize>> = ANCHOR_ITEMS
+            .iter()
+            .map(|id| self.hotbar_find(id))
+            .collect();
+        let Some(slots) = slots else { return true; };
+        let Some(hit) = self.pick() else { return true; };
+        // Never begin by using an existing anchor: that could detonate it.
+        if self.is_anchor(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2])) {
+            return true;
+        }
+        let Some(stack) = self.stack_in(slots[0]).cloned() else { return true; };
+        let Some((pos, _)) = self.remote_can_place(&hit, &stack) else { return true; };
+        self.anchor_combo = AnchorCombo {
+            stage: AnchorStage::SelectAnchor,
+            ticks: 0,
+            target: Some([pos.x, pos.y, pos.z]),
+            dimension: Some(self.dim),
+            slots: [slots[0], slots[1], slots[2]],
+        };
+        true
+    }
+
+    fn anchor_combo_allowed(&self) -> bool {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::active() { return false; }
+        self.screen == Screen::Playing
+            && self.remote.is_some()
+            && self.player.as_ref().is_some_and(|p| !p.health.dead_or_dying())
+            && !self.spectator()
+            && self.riding.is_none()
+            && self.sleeping.is_none()
+            && self.carried.is_none()
+            && !self.keys.contains(&KeyCode::ShiftLeft)
+            && !self.keys.contains(&KeyCode::ShiftRight)
+            && !self.hands_busy()
+            && !self.right
+            && !self.left
+            && self.rocket_launch.stage == RocketStage::Off
+            && self.chest_mace.stage == ChestStage::Off
+    }
+
+    fn anchor_combo_has(&self, index: usize) -> bool {
+        self.stack_in(self.anchor_combo.slots[index])
+            .is_some_and(|s| &*s.item == ANCHOR_ITEMS[index])
+    }
+
+    /// At most one use per stage. Both uses are guarded by the current
+    /// crosshair, hotbar slot and block state. There is no use after totem
+    /// selection, even on timeout or repeated key input.
+    fn anchor_combo_tick(&mut self) {
+        let stage = self.anchor_combo.stage;
+        if stage == AnchorStage::Off {
+            return;
+        }
+        self.anchor_combo.ticks += 1;
+        if !self.anchor_combo_allowed()
+            || self.anchor_combo.dimension != Some(self.dim)
+            || self.anchor_combo.ticks > 60
+        {
+            self.anchor_combo = AnchorCombo::default();
+            return;
+        }
+        let Some(target) = self.anchor_combo.target else {
+            self.anchor_combo = AnchorCombo::default();
+            return;
+        };
+        match stage {
+            AnchorStage::Off => {}
+            AnchorStage::SelectAnchor => {
+                if !(0..3).all(|i| self.anchor_combo_has(i)) {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                // remote_send_state sends this selection before next tick's use.
+                self.selected = self.anchor_combo.slots[0];
+                self.anchor_combo.stage = AnchorStage::Place;
+            }
+            AnchorStage::Place => {
+                if self.selected != self.anchor_combo.slots[0]
+                    || !self.anchor_combo_has(0)
+                    || !self.anchor_combo_has(1)
+                    || !self.anchor_combo_has(2)
+                {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                if self.use_delay > 0 { return; }
+                let Some(hit) = self.pick() else {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                };
+                let stack = self.stack_in(self.selected).cloned().unwrap();
+                // Recheck placement: camera movement may have changed the target.
+                if self.is_anchor(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]))
+                    || !self.remote_can_place(&hit, &stack)
+                        .is_some_and(|(p, _)| [p.x, p.y, p.z] == target)
+                {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                self.remote_use_block(Hand::Main);
+                self.use_delay = 4;
+                self.anchor_combo.stage = AnchorStage::SelectGlowstone;
+            }
+            AnchorStage::SelectGlowstone => {
+                if !self.anchor_combo_has(1) || !self.anchor_combo_has(2) {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                // Wait for placement/prediction without re-sending a place click.
+                if !self.is_anchor(self.world.block(target[0], target[1], target[2])) {
+                    return;
+                }
+                self.selected = self.anchor_combo.slots[1];
+                self.anchor_combo.stage = AnchorStage::Charge;
+            }
+            AnchorStage::Charge => {
+                if self.selected != self.anchor_combo.slots[1]
+                    || !self.anchor_combo_has(1)
+                    || !self.anchor_combo_has(2)
+                {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                if self.use_delay > 0 { return; }
+                let state = self.world.block(target[0], target[1], target[2]);
+                let uncharged = self.pack.assets.registry.state(state)
+                    .is_some_and(|s| s.properties.get("charges").map(String::as_str) == Some("0"));
+                if !self.is_anchor(state) || !uncharged
+                    || !self.pick().is_some_and(|hit| hit.pos == target)
+                {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                // Only glowstone on an uncharged anchor. Never use the totem.
+                self.remote_use_block(Hand::Main);
+                self.use_delay = 4;
+                self.anchor_combo.stage = AnchorStage::SelectTotem;
+            }
+            AnchorStage::SelectTotem => {
+                let state = self.world.block(target[0], target[1], target[2]);
+                if !self.is_anchor(state) {
+                    self.anchor_combo = AnchorCombo::default();
+                    return;
+                }
+                let charged = self.pack.assets.registry.state(state)
+                    .and_then(|s| s.properties.get("charges"))
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .is_some_and(|v| v > 0);
+                if !charged { return; }
+                if self.anchor_combo_has(2) {
+                    self.selected = self.anchor_combo.slots[2];
+                }
+                self.anchor_combo = AnchorCombo::default();
+            }
+        }
+    }
+
     /// LocalPlayer.sendPosition plus input, sprint and held-slot updates.
     /// The Extras "Auto water bucket" switch (default off; 1 is single
     /// player only, 2 servers too): a fall that would hurt, landing within

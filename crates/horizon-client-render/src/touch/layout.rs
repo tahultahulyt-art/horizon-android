@@ -433,6 +433,16 @@ impl Settings {
             chest.layouts = [Placement::new(0.775, 0.64, 0.105); 3];
             self.custom_buttons.push(chest);
         }
+        // CK uses the free K key, with the same saved-layout migration as R/B.
+        if !self.custom_buttons.iter().any(|b| b.key == "key.keyboard.k")
+            && self.custom_buttons.len() < 64
+        {
+            let mut ck =
+                super::CustomButton::new("key.keyboard.k".into(), self.custom_buttons.len());
+            ck.caption = "CK".into();
+            ck.layouts = [Placement::new(0.89, 0.64, 0.105); 3];
+            self.custom_buttons.push(ck);
+        }
         for button in &mut self.custom_buttons {
             if !button.shape.is_finite() {
                 button.shape = 1.0;

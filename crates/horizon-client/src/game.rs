@@ -2543,6 +2543,8 @@ struct Game<'a> {
     rocket_launch: RocketLaunch,
     /// The B key's chestplate + mace ready (`game/remote.rs`'s chest_mace_*).
     chest_mace: ChestMace,
+    /// CK (K): hotbar-only anchor placement and charge, never detonation.
+    anchor_combo: remote::AnchorCombo,
     tutorial: tutorial::Tutorial,
     tutorial_toasts: Vec<tutorial::HintToast>,
     /// The `SystemToastId.NARRATOR_TOGGLE` toast, wherever the player is.
@@ -15519,6 +15521,7 @@ impl Game<'_> {
         if self.auto_mlg_key_press(key)
             || self.rocket_launch_key_press(key)
             || self.chest_mace_key_press(key)
+            || self.anchor_combo_key_press(key)
             || self.sort_key_press(key)
             || self.hdr_key_press(key)
         {
@@ -18349,6 +18352,7 @@ impl<'a> Game<'a> {
             auto_mlg: AutoMlg::default(),
             rocket_launch: RocketLaunch::default(),
             chest_mace: ChestMace::default(),
+            anchor_combo: remote::AnchorCombo::default(),
             tutorial,
             tutorial_toasts: Vec::new(),
             narrator_toast: None,
