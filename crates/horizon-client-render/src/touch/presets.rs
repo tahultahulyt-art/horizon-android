@@ -185,6 +185,31 @@ mod tests {
         assert_eq!(t.settings.custom_buttons[0].caption, "Custom inventory");
     }
     #[test]
+    fn combat_action_buttons_do_not_overlap_in_landscape() {
+        for aspect in [16.0 / 9.0, 20.0 / 9.0] {
+            for name in ["Mace+", "Crystal"] {
+                let layout = source_layout(name, aspect).unwrap();
+                for (i, a) in layout.buttons.iter().enumerate() {
+                    let pa = a.layouts[0];
+                    let wa = pa.size * a.shape / aspect;
+                    for b in &layout.buttons[i + 1..] {
+                        let pb = b.layouts[0];
+                        let wb = pb.size * b.shape / aspect;
+                        let dx = (pa.center[0] - pb.center[0]).abs();
+                        let dy = (pa.center[1] - pb.center[1]).abs();
+                        assert!(
+                            dx + 0.001 >= (wa + wb) / 2.0
+                                || dy + 0.001 >= (pa.size + pb.size) / 2.0,
+                            "{name}: {} overlaps {}",
+                            a.caption,
+                            b.caption
+                        );
+                    }
+                }
+            }
+        }
+    }
+    #[test]
     fn switching_preserves_previous_edits_and_cancel_snapshot() {
         let mut t = TouchControls::default();
         t.settings
