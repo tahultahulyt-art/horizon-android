@@ -990,7 +990,51 @@ pub struct ParticleLevel<'a> {
     pub player: Option<([f64; 3], f64)>,
 }
 impl ParticleLevel<'_> {
+    /// Risiya: whether every block cell around the box's path (one cell of margin, for
+    /// shapes that reach out of their block) has no collision at all. Then the full
+    /// scan could only return the movement unchanged, so it is skipped. Anything
+    /// unusual (an unloaded column, outside the world, a large shape or a moving
+    /// piston) answers false and takes the ordinary path.
+    fn path_is_clear(&self, bb: Aabb, d: [f64; 3]) -> bool {
+        let (lo, hi) = (bb.min_position(), bb.max_position());
+        let cell = |v: f64| v.floor() as i32;
+        let (x0, x1) = (
+            cell(lo.x.min(lo.x + d[0])) - 1,
+            cell(hi.x.max(hi.x + d[0])) + 1,
+        );
+        let (y0, y1) = (
+            cell(lo.y.min(lo.y + d[1])) - 1,
+            cell(hi.y.max(hi.y + d[1])) + 1,
+        );
+        let (z0, z1) = (
+            cell(lo.z.min(lo.z + d[2])) - 1,
+            cell(hi.z.max(hi.z + d[2])) + 1,
+        );
+        if y0 < self.world.bottom_y() || y1 >= self.world.shape.max_y() {
+            return false;
+        }
+        if (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > 125 {
+            return false;
+        }
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                let Some(chunk) = self.world.chunks.get(&(x >> 4, z >> 4)) else {
+                    return false;
+                };
+                for y in y0..=y1 {
+                    match self.collision.collision_block(chunk.block(x, y, z)) {
+                        Ok(b) if b.empty_shape && !b.large_collision_shape && !b.moving_piston => {}
+                        _ => return false,
+                    }
+                }
+            }
+        }
+        true
+    }
     fn collide(&self, bb: Aabb, d: [f64; 3]) -> [f64; 3] {
+        if self.path_is_clear(bb, d) {
+            return d;
+        }
         let mut scene = SceneCollisions {
             world: self.world,
             binding: self.collision,
@@ -4119,6 +4163,13 @@ impl ParticleEngine {
         // Camera.setRotation: rotationYXZ(PI - yRot, -xRot, 0).
         let base = Quat::from_rotation_y(std::f32::consts::PI - yaw.to_radians())
             * Quat::from_rotation_x(-pitch.to_radians());
+        // Risiya: the camera-facing axes once per frame; a particle without roll
+        // gets its corners from them instead of four quaternion rotations.
+        let base_right = base * FVec3::X;
+        let base_up = base * FVec3::Y;
+        // Particles spawned together sit in the same block: reuse the last light read.
+        let mut light_cache: Option<([i32; 3], u8)> = None;
+        out.reserve(self.particles.len() * 4);
         for p in &self.particles {
             if p.no_render {
                 continue;
@@ -4218,7 +4269,14 @@ impl ParticleEngine {
                 _ => {}
             }
             let block = ParticleLevel::block_at(p.position);
-            let packed = light_at(block);
+            let packed = match light_cache {
+                Some((cached, packed)) if cached == block => packed,
+                _ => {
+                    let packed = light_at(block);
+                    light_cache = Some((block, packed));
+                    packed
+                }
+            };
             let (sky_light, block_light) = p.light_coords(
                 partial,
                 u32::from(packed >> 4) * 16,
@@ -4234,6 +4292,11 @@ impl ParticleEngine {
                 r.u0 + du * p.uv[2],
                 r.v0 + dv * p.uv[3],
             );
+            let plain = p.roll == 0.0
+                && !matches!(
+                    p.behaviour,
+                    Behaviour::Shriek { .. } | Behaviour::Vibration { .. }
+                );
             for rotation in rotations.into_iter().flatten() {
                 for (n, uv) in [
                     ((1.0, -1.0), [u1, v1]),
@@ -4241,7 +4304,11 @@ impl ParticleEngine {
                     ((-1.0, 1.0), [u0, v0]),
                     ((-1.0, -1.0), [u0, v1]),
                 ] {
-                    let v = center + rotation * FVec3::new(n.0, n.1, 0.0) * size;
+                    let v = if plain {
+                        center + (base_right * n.0 + base_up * n.1) * size
+                    } else {
+                        center + rotation * FVec3::new(n.0, n.1, 0.0) * size
+                    };
                     out.push(Vertex {
                         normal: [0; 4],
                         pos: v.to_array(),
