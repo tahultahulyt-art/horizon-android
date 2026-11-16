@@ -20,7 +20,10 @@ pub(super) struct AnchorCombo {
     place_hit: Option<super::Hit>,
     charge_hit: Option<super::Hit>,
     dimension: Option<Dim>,
-    slots: [usize; 3],
+    slots: [usize; 2],
+    /// Hotbar slot of the totem, if one is left. A popped totem is gone
+    /// from the hotbar; CK then still runs and just has no totem to end on.
+    totem: Option<usize>,
 }
 #[derive(Clone, Copy, Default, PartialEq)]
 enum AnchorStage {
@@ -6877,11 +6880,14 @@ impl Game<'_> {
         if !self.anchor_combo_allowed() {
             return true;
         }
-        let slots: Option<Vec<usize>> = ANCHOR_ITEMS
+        // Anchor and glowstone are required; the totem is optional (a popped
+        // totem leaves none in the hotbar).
+        let slots: Option<Vec<usize>> = ANCHOR_ITEMS[..2]
             .iter()
             .map(|id| self.hotbar_find(id))
             .collect();
         let Some(slots) = slots else { return true; };
+        let totem = self.hotbar_find(ANCHOR_ITEMS[2]);
         let Some(hit) = self.pick() else { return true; };
         // Never begin by using an existing anchor: that could detonate it.
         if self.is_anchor(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2])) {
@@ -6906,7 +6912,8 @@ impl Game<'_> {
             place_hit: Some(hit),
             charge_hit: Some(super::Hit { pos: target, face, point }),
             dimension: Some(self.dim),
-            slots: [slots[0], slots[1], slots[2]],
+            slots: [slots[0], slots[1]],
+            totem,
         };
         true
     }
@@ -6945,6 +6952,15 @@ impl Game<'_> {
             .is_some_and(|s| &*s.item == ANCHOR_ITEMS[index])
     }
 
+    /// The totem is still in its hotbar slot (it may never have been there,
+    /// or may have popped meanwhile).
+    fn anchor_combo_totem_slot(&self) -> Option<usize> {
+        let slot = self.anchor_combo.totem?;
+        self.stack_in(slot)
+            .is_some_and(|s| &*s.item == ANCHOR_ITEMS[2])
+            .then_some(slot)
+    }
+
     /// Select a hotbar slot and send SetCarriedItem at once, not at the end
     /// of the tick: a use later in the same tick reaches the server behind
     /// it, so the server applies them in the order a fast player clicks.
@@ -6967,10 +6983,10 @@ impl Game<'_> {
     fn anchor_combo_end(&mut self) {
         if self.anchor_combo.stage != AnchorStage::Off
             && self.anchor_combo.stage != AnchorStage::SelectAnchor
-            && self.anchor_combo_has(2)
         {
-            let slot = self.anchor_combo.slots[2];
-            self.anchor_select(slot);
+            if let Some(slot) = self.anchor_combo_totem_slot() {
+                self.anchor_select(slot);
+            }
         }
         self.anchor_combo = AnchorCombo::default();
     }
@@ -7021,7 +7037,7 @@ impl Game<'_> {
             match self.anchor_combo.stage {
                 AnchorStage::Off => break,
                 AnchorStage::SelectAnchor => {
-                    if !(0..3).all(|i| self.anchor_combo_has(i)) {
+                    if !(0..2).all(|i| self.anchor_combo_has(i)) {
                         self.anchor_combo = AnchorCombo::default();
                         break;
                     }
@@ -7045,7 +7061,6 @@ impl Game<'_> {
                     // anchor that slot is empty now, so only the glowstone
                     // and the totem are still required.
                     if !self.anchor_combo_has(1)
-                        || !self.anchor_combo_has(2)
                         || !self.is_anchor(self.world.block(target[0], target[1], target[2]))
                     {
                         self.anchor_combo_end();
@@ -7062,7 +7077,6 @@ impl Game<'_> {
                     // never a placed glowstone block, never the totem, never
                     // a detonation.
                     if !self.anchor_combo_has(1)
-                        || !self.anchor_combo_has(2)
                         || !self.anchor_takes(target, self.stack_in(self.selected))
                     {
                         self.anchor_combo_end();

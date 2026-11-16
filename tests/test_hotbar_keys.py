@@ -12,9 +12,10 @@ class HotbarKeys(unittest.TestCase):
     def test_lookup_is_only_nine_hotbar_slots(self):
         body = REMOTE.split('fn hotbar_find', 1)[1].split('fn hotbar_select', 1)[0]
         self.assertIn('(0..9).find', body)
-    def test_ck_requires_all_three_items(self):
+    def test_ck_requires_anchor_and_glowstone_but_not_the_totem(self):
         body = REMOTE.split('fn anchor_combo_key_press', 1)[1].split('fn anchor_combo_allowed', 1)[0]
-        self.assertIn('.map(|id| self.hotbar_find(id))', body)
+        self.assertIn('ANCHOR_ITEMS[..2]', body)
+        self.assertIn('let totem = self.hotbar_find(ANCHOR_ITEMS[2]);', body)
         self.assertIn('let Some(slots) = slots else', body)
         self.assertLess(body.index('let Some(slots)'), body.index('self.anchor_combo = AnchorCombo'))
     def test_ck_uses_only_place_and_charge(self):
@@ -62,7 +63,7 @@ class HotbarKeys(unittest.TestCase):
         self.assertIn('break;', glow.split('self.anchor_select', 1)[1])
         # The all-three-items recheck happens only before the first swap: the
         # place spends its own stack, so later stages require just the two.
-        self.assertEqual(body.count('(0..3).all(|i| self.anchor_combo_has(i))'), 1)
+        self.assertEqual(body.count('(0..2).all(|i| self.anchor_combo_has(i))'), 1)
     def test_ck_attack_taps_cannot_abort(self):
         guard = REMOTE.split('fn anchor_combo_running', 1)[1].split('/// One hotbar swap per tick', 1)[0]
         self.assertNotIn('self.right', guard)
@@ -76,13 +77,18 @@ class HotbarKeys(unittest.TestCase):
     def test_ck_every_end_lands_on_the_totem(self):
         end = REMOTE.split('fn anchor_combo_end', 1)[1].split('fn anchor_combo_tick', 1)[0]
         self.assertIn('AnchorStage::SelectAnchor', end)
-        self.assertIn('self.anchor_combo_has(2)', end)
+        self.assertIn('self.anchor_combo_totem_slot()', end)
         self.assertIn('self.anchor_select(slot)', end)
         self.assertNotIn('remote_use', end)
         self.assertNotIn('anchor_use_at', end)
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
         # The guard, both mid-sequence failures and the finished sequence.
         self.assertGreaterEqual(body.count('self.anchor_combo_end()'), 4)
+    def test_ck_runs_without_a_totem(self):
+        body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
+        self.assertNotIn('anchor_combo_has(2)', body)
+        self.assertNotIn('slots[2]', REMOTE.split('fn anchor_combo_key_press', 1)[1].split('fn auto_mlg_prepare', 1)[0])
+        self.assertIn('Option<usize>', REMOTE.split('pub(super) struct AnchorCombo', 1)[1].split('}', 1)[0])
     def test_ck_touch_button_is_momentary(self):
         layout = (ROOT / 'crates/horizon-client-render/src/touch/layout.rs').read_text()
         self.assertIn('ck.caption = "CK"', layout)
