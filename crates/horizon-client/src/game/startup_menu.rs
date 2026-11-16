@@ -1695,9 +1695,6 @@ impl Loading {
         #[cfg(target_os = "android")]
         {
             self.menu.touch.draw(batch, &gui.atlas, true);
-            if self.menu.touch.virtual_mouse {
-                horizon_client::touch_ui::draw_pointer(batch, &gui.atlas, self.menu.cursor);
-            }
         }
         self.menu
             .frame_graph

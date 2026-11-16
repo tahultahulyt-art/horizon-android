@@ -1459,7 +1459,7 @@ impl Game<'_> {
 
     // ---- drawing ----
 
-    /// The pad's cursor (pointer mode) or focus highlight (focus mode), and
+    /// The pad's focus highlight (focus mode) and
     /// the on-screen keyboard, over everything else.
     pub(super) fn draw_pad_cursor(&self, batch: &mut HudBatch) {
         if !self.pad_in_menu() {
@@ -1477,32 +1477,21 @@ impl Game<'_> {
             ui.finish();
             return;
         }
+        // Keep keyboard/controller focus outlines, but no visual menu cursor.
+        // Touch and virtual-mouse input still use the same cursor positions.
         #[cfg(target_os = "android")]
         let virtual_mouse = self.pad.touch_ui.virtual_mouse;
         #[cfg(not(target_os = "android"))]
         let virtual_mouse = false;
-        // Android direct touches already update self.cursor in menus. Draw the
-        // same small pointer there too; gameplay still returns above.
-        let pointer = if virtual_mouse || cfg!(target_os = "android") {
-            Some(self.cursor)
-        } else {
-            self.pad.menu.pos
-        };
-        let Some((x, y)) = pointer else {
+        if !(virtual_mouse || cfg!(target_os = "android")) && self.pad.menu.pos.is_none() {
             return;
-        };
+        }
         if !virtual_mouse
             && self.pad_focus_mode()
             && let Some(focus) = self.pad.menu.focus
         {
             self.draw_pad_focus(batch, focus);
-            return;
         }
-        #[cfg(target_os = "android")]
-        let scale = self.settings.touch.cursor_scale;
-        #[cfg(not(target_os = "android"))]
-        let scale = 1.0;
-        horizon_client::touch_ui::draw_pointer_scaled(batch, &self.gui.atlas, (x, y), scale);
     }
 
     /// The focus highlight, as vanilla's keyboard focus looks: buttons,
