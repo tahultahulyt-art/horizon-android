@@ -1517,6 +1517,36 @@ impl Title {
         }
     }
     /// The folder a new world named `name` gets (`findResultFolder`).
+    fn practice_action(&self) -> Action {
+        const NAME: &str = "Risiya Practice";
+        let folder = NAME.to_owned();
+        if self.saves.join(&folder).join(".risiya-practice-v1").is_file() {
+            return Action::Play { folder };
+        }
+        let mut options = WorldOptions {
+            practice: true,
+            commands: Some(false),
+            world_type: crate::save::WorldPreset::Flat,
+            structures: false,
+            flat_settings: Some(super::title::flat::FlatSettings {
+                structure_overrides: Vec::new(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        for (rule, value) in [
+            ("keep_inventory", "true"),
+            ("spawn_mobs", "false"),
+            ("advance_time", "false"),
+            ("advance_weather", "false"),
+        ] {
+            options.rules.set_string(rule, value);
+        }
+        Action::Create {
+            folder: self.target_folder(NAME), name: NAME.into(), seed: Some(7331),
+            creative: false, options,
+        }
+    }
     fn target_folder(&self, name: &str) -> String {
         let base: String = name
             .chars()
@@ -1583,9 +1613,9 @@ impl Title {
                         cx - 100.0,
                         y + 48.0,
                         200.0,
-                        &lang::get_or("menu.online", "Minecraft Realms"),
-                        false,
-                        0,
+                        "PvP Practice",
+                        true,
+                        125,
                     ),
                     b(
                         cx - 100.0,
@@ -3171,6 +3201,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 self.enter_singleplayer();
                 Action::None
             }
+            (Mode::Main, Some(125)) => self.practice_action(),
             (Mode::Main, Some(2)) => Action::Quit,
             (Mode::BanNotice(_), Some(id @ 120..=122)) => {
                 // BanNoticeScreens' callback: Open in Browser opens the link, Copy copies it

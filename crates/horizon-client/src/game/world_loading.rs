@@ -133,6 +133,9 @@ impl WorldRequest {
         let mut level = level;
         // CreateWorldScreen's choices, before streaming reads the generator.
         if created && let Some(o) = create {
+            if o.practice {
+                std::fs::write(save_root.join(".risiya-practice-v1"), b"1\n")?;
+            }
             level.hardcore = o.hardcore;
             level.difficulty = horizon_client::title::DIFFICULTIES[o.difficulty()].into();
             level.allow_commands = Some(o.commands(creative));

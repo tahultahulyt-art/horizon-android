@@ -244,6 +244,7 @@ impl Game<'_> {
         );
         let links = !self.server_links().is_empty();
         let additions = self.pause_screen_additions();
+        let practice = self.practice_menu();
         let mut tooltip = None;
         for (x, y, bw, key, id, active) in
             pause_buttons(w, h, self.external_server(), links, additions.is_some())
@@ -251,6 +252,9 @@ impl Game<'_> {
             let is_focused = self.pause_focus == Some(id);
             let hover = active && (ui::hovered(self.cursor, x, y, bw, 20.0) || is_focused);
             let label = match (id, &additions) {
+                (4, _) if practice => Text::literal("Restart practice"),
+                (3, _) if practice => Text::literal("Stop practice"),
+                (9, _) if practice => Text::literal(format!("Bot: {}", self.practice.difficulty.name())),
                 #[cfg(target_os = "android")]
                 (16, _) => Text::literal("Edit Controls..."),
                 (14, Some((label, _))) => label.clone(),
@@ -332,6 +336,10 @@ impl Game<'_> {
         }
     }
     pub(super) fn execute_pause_action(&mut self, hit: u8) -> Result<()> {
+        if self.practice_menu() && matches!(hit, 3 | 4 | 9) {
+            self.practice_menu_action(hit);
+            return Ok(());
+        }
         match hit {
             0 => {
                 self.pause_focus = None;

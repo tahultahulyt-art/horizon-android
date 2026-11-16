@@ -143,6 +143,7 @@ mod headless;
 mod ime;
 mod initial_spawn;
 mod integrated;
+mod practice;
 mod interactions;
 mod item_draw;
 mod item_particles;
@@ -2784,6 +2785,7 @@ struct Game<'a> {
     /// The open world is shared behind an invite code (game/friends.rs).
     friends: Option<friends::Sharing>,
     world_options: Option<lan_screen::WorldOptions>,
+    practice: practice::Practice,
     /// Chat Settings opened from RestrictionsScreen: Done returns to World Options.
     options_to_world_options: bool,
     /// HDR's settings opened with their key from the game: Done returns to the game.
@@ -11679,6 +11681,7 @@ impl Game<'_> {
         let dim = Dim::from_id(&level.dimension);
         self.level_shapes = shapes;
         self.world_root = save_root.clone();
+        self.practice = practice::Practice::for_world(&save_root);
         // The world's packs over the game's biomes (`Biomes::with_packs`),
         // the table its chunks were built with.
         self.world_biomes = self.packed_biomes();
@@ -18517,6 +18520,7 @@ impl<'a> Game<'a> {
             level_shapes: Default::default(),
             serving: None,
             world_options: None,
+            practice: practice::Practice::default(),
             options_to_world_options: false,
             options_to_game: false,
             command_block_screen: None,
