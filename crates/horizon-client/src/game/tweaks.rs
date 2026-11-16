@@ -446,6 +446,38 @@ impl Game<'_> {
     pub(super) fn sort_key_press(&mut self, key: KeyCode) -> bool {
         keybinds::key_name(key).is_some_and(|name| self.sort_input(name))
     }
+    /// The G key's totem pull, with the inventory or a container screen
+    /// open: one totem of the player's own inventory moves into the hotbar.
+    /// A totem under the cursor is the one that moves (hover it and press,
+    /// like a number key); over anything else the first totem of the main
+    /// inventory moves. It lands in the first free hotbar slot, or the
+    /// selected slot when the hotbar is full. One press is one ordinary
+    /// SWAP click, so it works wherever vanilla's clicks do. The recipe
+    /// book's search keeps the key for typing.
+    pub(super) fn totem_pull_key_press(&mut self, key: KeyCode) -> bool {
+        if key != KeyCode::KeyG
+            || self.screen != Screen::Inventory
+            || self.dialog_open()
+            || self.recipe_search_focused()
+        {
+            return false;
+        }
+        let hovered = self.renderer.as_ref().and_then(|r| {
+            let batch = HudBatch::new([r.config.width, r.config.height]);
+            self.slot_at(&batch, self.cursor.0, self.cursor.1)
+        });
+        let Some((slot, target)) = totem_pull_slots(&self.inventory, self.selected, hovered)
+        else {
+            // No totem anywhere: the press is still spent, like a number key
+            // over an empty slot.
+            return true;
+        };
+        let done = self.menu_click(Some(slot), target as i32, Input::Swap);
+        if done && let Some(key) = self.container {
+            self.container_changed(key);
+        }
+        done
+    }
     pub(super) fn sort_mouse_press(&mut self, button: MouseButton) -> bool {
         self.sort_input(&keybinds::mouse_name(button))
     }
@@ -523,9 +555,32 @@ impl Game<'_> {
     }
 }
 
+/// The totem pull's slots: the hovered totem, else the first totem of the
+/// main inventory (9..36, so a hotbar totem is never moved), into the first
+/// free hotbar slot or the selected one when the hotbar is full.
+fn totem_pull_slots(
+    inventory: &[Option<ItemStack>],
+    selected: usize,
+    hovered: Option<usize>,
+) -> Option<(usize, usize)> {
+    let is_totem = |s: Option<&ItemStack>| {
+        s.is_some_and(|s| &*s.item == "minecraft:totem_of_undying")
+    };
+    let source = match hovered {
+        Some(i) if (9..36).contains(&i) && is_totem(inventory.get(i).and_then(Option::as_ref)) => {
+            i
+        }
+        _ => (9..36).find(|&i| is_totem(inventory.get(i).and_then(Option::as_ref)))?,
+    };
+    let target = (0..9)
+        .find(|&i| inventory.get(i).map_or(true, Option::is_none))
+        .unwrap_or(selected);
+    Some((source, target))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::tweak_menu;
+    use super::{tweak_menu, totem_pull_slots};
 
     #[test]
     fn the_tweaks_run_in_the_menus_with_plain_click_rules() {
@@ -556,5 +611,34 @@ mod tests {
         ] {
             assert!(!tweak_menu(menu), "{menu}");
         }
+    }
+
+    #[test]
+    fn the_totem_pull_picks_a_totem_of_the_inventory_and_a_hotbar_slot() {
+        use horizon_client::items::ItemStack;
+        let totem = || Some(ItemStack::new("minecraft:totem_of_undying", 1));
+        let dirt = || Some(ItemStack::new("minecraft:dirt", 1));
+        let mut inv: Vec<Option<ItemStack>> = (0..36).map(|_| None).collect();
+        // No totem at all: nothing to pull.
+        assert_eq!(totem_pull_slots(&inv, 3, None), None);
+        // A hotbar totem alone never moves.
+        inv[4] = totem();
+        assert_eq!(totem_pull_slots(&inv, 3, Some(4)), None);
+        // The first totem of the main inventory goes to the first free
+        // hotbar slot.
+        inv[20] = totem();
+        inv[25] = totem();
+        inv[0] = dirt();
+        assert_eq!(totem_pull_slots(&inv, 3, None), Some((20, 1)));
+        // The totem under the cursor wins over the first one.
+        assert_eq!(totem_pull_slots(&inv, 3, Some(25)), Some((25, 1)));
+        // A non-totem under the cursor falls back to the scan.
+        inv[30] = dirt();
+        assert_eq!(totem_pull_slots(&inv, 3, Some(30)), Some((20, 1)));
+        // A full hotbar leaves the selected slot as the swap target.
+        for i in 0..9 {
+            inv[i] = dirt();
+        }
+        assert_eq!(totem_pull_slots(&inv, 3, None), Some((20, 3)));
     }
 }

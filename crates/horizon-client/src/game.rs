@@ -15523,6 +15523,7 @@ impl Game<'_> {
             || self.chest_mace_key_press(key)
             || self.anchor_combo_key_press(key)
             || self.sort_key_press(key)
+            || self.totem_pull_key_press(key)
             || self.hdr_key_press(key)
         {
             return Ok(());
@@ -15602,9 +15603,25 @@ impl Game<'_> {
             }
             KeyCode::KeyL if self.screen == Screen::Advancements => self.close_advancements(),
             // key.quickActions: only open if a datapack provides dialog actions.
+            // Without them G is the totem pull's other half: it opens the
+            // inventory, where the same key then moves a totem to the
+            // hotbar (game/tweaks.rs's totem_pull_key_press).
             KeyCode::KeyG if self.screen == Screen::Playing => {
                 if self.has_quick_actions() {
                     self.open_quick_actions();
+                } else if !self.spectator() && !self.open_ridden_mount_menu() {
+                    if self.tutorial.open_inventory() {
+                        self.persist_tutorial_step();
+                    }
+                    if self.creative {
+                        self.screen = Screen::Creative;
+                        self.refresh_creative_tabs();
+                        self.creative_screen.reopen();
+                        self.refresh_saved_hotbars();
+                    } else {
+                        self.screen = Screen::Inventory;
+                    }
+                    self.capture(false);
                 }
             }
             KeyCode::Slash if self.screen == Screen::Playing => self.open_chat_method("/"),

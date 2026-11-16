@@ -443,6 +443,17 @@ impl Settings {
             ck.layouts = [Placement::new(0.89, 0.64, 0.105); 3];
             self.custom_buttons.push(ck);
         }
+        // The totem pull's button (the G key), under CK: in play it opens
+        // the inventory, there it sends a totem to the hotbar.
+        if !self.custom_buttons.iter().any(|b| b.key == "key.keyboard.g")
+            && self.custom_buttons.len() < 64
+        {
+            let mut totem =
+                super::CustomButton::new("key.keyboard.g".into(), self.custom_buttons.len());
+            totem.caption = "Totem".into();
+            totem.layouts = [Placement::new(0.89, 0.76, 0.105); 3];
+            self.custom_buttons.push(totem);
+        }
         for button in &mut self.custom_buttons {
             if !button.shape.is_finite() {
                 button.shape = 1.0;
