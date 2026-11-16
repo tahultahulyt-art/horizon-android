@@ -20,13 +20,13 @@ class HotbarKeys(unittest.TestCase):
     def test_ck_uses_only_place_and_charge(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
         self.assertEqual(body.count('self.anchor_use_at('), 2)
-        helper = REMOTE.split('fn anchor_use_at', 1)[1].split('fn anchor_combo_tick', 1)[0]
+        helper = REMOTE.split('fn anchor_use_at', 1)[1].split('fn anchor_combo_allowed', 1)[0]
         self.assertEqual(helper.count('self.remote_use_block(Hand::Main)'), 1)
         self.assertIn('self.forced_hit = previous', helper)
         totem = body.split('AnchorStage::SelectTotem =>', 1)[1]
         self.assertNotIn('remote_use', totem)
         self.assertNotIn('anchor_use_at', totem)
-        self.assertIn('self.selected = self.anchor_combo.slots[2]', totem)
+        self.assertIn('self.anchor_combo_end()', totem)
         self.assertNotIn('tweak_click', body)
         self.assertNotIn('UseItemOn', body)
     def test_ck_has_no_crosshair_recheck_or_use_delay_wait(self):
@@ -42,11 +42,30 @@ class HotbarKeys(unittest.TestCase):
         body = REMOTE.split('fn anchor_combo_key_press', 1)[1].split('fn anchor_combo_allowed', 1)[0]
         self.assertIn('place_hit: Some(hit)', body)
         self.assertIn('charge_hit: Some(super::Hit { pos: target, face, point })', body)
-    def test_ck_selection_precedes_use_in_separate_stage(self):
+    def test_ck_selection_sends_carried_item_at_once(self):
+        helper = REMOTE.split('fn anchor_select', 1)[1].split('fn anchor_combo_end', 1)[0]
+        self.assertIn('self.selected = slot', helper)
+        self.assertIn('r.carried.replace(slot)', helper)
+        self.assertIn('self.send(S::SetCarriedItem(play::SetCarriedItem { slot: slot as i16 }))', helper)
+    def test_ck_runs_in_one_tick(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
+        self.assertIn('for _ in 0..6', body)
         stage = body.split('AnchorStage::SelectAnchor =>', 1)[1].split('AnchorStage::Place =>', 1)[0]
-        self.assertIn('self.selected = self.anchor_combo.slots[0]', stage)
+        self.assertIn('self.anchor_select(self.anchor_combo.slots[0])', stage)
         self.assertNotIn('remote_use', stage)
+        # The all-three-items recheck happens only before the first swap: the
+        # place spends its own stack, so later stages require just the two.
+        self.assertEqual(body.count('(0..3).all(|i| self.anchor_combo_has(i))'), 1)
+    def test_ck_every_end_lands_on_the_totem(self):
+        end = REMOTE.split('fn anchor_combo_end', 1)[1].split('fn anchor_combo_tick', 1)[0]
+        self.assertIn('AnchorStage::SelectAnchor', end)
+        self.assertIn('self.anchor_combo_has(2)', end)
+        self.assertIn('self.anchor_select(slot)', end)
+        self.assertNotIn('remote_use', end)
+        self.assertNotIn('anchor_use_at', end)
+        body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
+        # The guard, both mid-sequence failures and the finished sequence.
+        self.assertGreaterEqual(body.count('self.anchor_combo_end()'), 4)
     def test_ck_touch_button_is_momentary(self):
         layout = (ROOT / 'crates/horizon-client-render/src/touch/layout.rs').read_text()
         self.assertIn('ck.caption = "CK"', layout)

@@ -8,9 +8,10 @@
 //! everything else.
 use super::remote_chunks::{ChunkDecoder, ChunkFormat, Next};
 use super::{ChestStage, Dim, Game, Mining, RocketStage, Screen};
-/// CK's bounded sequence. No stage uses the selected totem or detonates an anchor.
+/// CK's bounded sequence. No step uses the selected totem or detonates an anchor.
 /// The two clicks keep the hit captured at the key press, so camera movement
-/// during the sequence cannot move or lose the target.
+/// during the sequence cannot move or lose the target, and the slot swaps go
+/// out the moment they happen, so the whole sequence lands in one tick.
 #[derive(Default)]
 pub(super) struct AnchorCombo {
     stage: AnchorStage,
@@ -6944,16 +6945,46 @@ impl Game<'_> {
             .is_some_and(|s| &*s.item == ANCHOR_ITEMS[index])
     }
 
-    /// One step a tick, what a fast player does: swap, place, swap, charge,
-    /// swap to the totem. The uses aim at the hit captured at the key press
-    /// and never wait on `use_delay`, so nothing stalls mid-sequence; the
-    /// final totem selection runs the tick after the charge without waiting
-    /// on the block update, so the sequence cannot end on the glowstone.
-    /// There is no use after totem selection, even on timeout or repeated
-    /// key input.
+    /// Select a hotbar slot and send SetCarriedItem at once, not at the end
+    /// of the tick: a use later in the same tick reaches the server behind
+    /// it, so the server applies them in the order a fast player clicks.
+    fn anchor_select(&mut self, slot: usize) {
+        self.selected = slot;
+        let changed = self
+            .remote
+            .as_mut()
+            .is_some_and(|r| r.carried.replace(slot) != Some(slot));
+        if changed {
+            self.send(S::SetCarriedItem(play::SetCarriedItem { slot: slot as i16 }));
+        }
+    }
+
+    /// The sequence is over, finished or cut short: once it got past the
+    /// anchor swap the hand always ends on the totem, never on the glowstone
+    /// the charge used (a fight's detonation click must not feed the anchor
+    /// another glowstone). At SelectAnchor nothing was selected yet, so the
+    /// hand stays where it was.
+    fn anchor_combo_end(&mut self) {
+        if self.anchor_combo.stage != AnchorStage::Off
+            && self.anchor_combo.stage != AnchorStage::SelectAnchor
+            && self.anchor_combo_has(2)
+        {
+            let slot = self.anchor_combo.slots[2];
+            self.anchor_select(slot);
+        }
+        self.anchor_combo = AnchorCombo::default();
+    }
+
+    /// The whole combo in one tick, what a fast player's clicks look like to
+    /// the server: swap, place, swap, charge, swap to the totem. Spreading
+    /// the steps over five ticks let any attack or use press in between (a
+    /// fight is full of them) cut the sequence off right after the glowstone
+    /// swap - the stall and the glowstone left in hand he reported. The uses
+    /// aim at the hit captured at the key press and never wait on
+    /// `use_delay`. There is no use after totem selection, even on timeout
+    /// or repeated key input.
     fn anchor_combo_tick(&mut self) {
-        let stage = self.anchor_combo.stage;
-        if stage == AnchorStage::Off {
+        if self.anchor_combo.stage == AnchorStage::Off {
             return;
         }
         self.anchor_combo.ticks += 1;
@@ -6961,7 +6992,7 @@ impl Game<'_> {
             || self.anchor_combo.dimension != Some(self.dim)
             || self.anchor_combo.ticks > 10
         {
-            self.anchor_combo = AnchorCombo::default();
+            self.anchor_combo_end();
             return;
         }
         let (Some(target), Some(place_hit), Some(charge_hit)) = (
@@ -6972,65 +7003,59 @@ impl Game<'_> {
             self.anchor_combo = AnchorCombo::default();
             return;
         };
-        match stage {
-            AnchorStage::Off => {}
-            AnchorStage::SelectAnchor => {
-                if !(0..3).all(|i| self.anchor_combo_has(i)) {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
+        for _ in 0..6 {
+            match self.anchor_combo.stage {
+                AnchorStage::Off => break,
+                AnchorStage::SelectAnchor => {
+                    if !(0..3).all(|i| self.anchor_combo_has(i)) {
+                        self.anchor_combo = AnchorCombo::default();
+                        break;
+                    }
+                    self.anchor_select(self.anchor_combo.slots[0]);
+                    self.anchor_combo.stage = AnchorStage::Place;
                 }
-                // remote_send_state sends this selection before next tick's use.
-                self.selected = self.anchor_combo.slots[0];
-                self.anchor_combo.stage = AnchorStage::Place;
-            }
-            AnchorStage::Place => {
-                if self.selected != self.anchor_combo.slots[0]
-                    || !(0..3).all(|i| self.anchor_combo_has(i))
-                {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
+                AnchorStage::Place => {
+                    // The tap captured at the key press, not a fresh crosshair
+                    // read; the carried slot went out above, ahead of this use.
+                    self.anchor_use_at(place_hit);
+                    self.anchor_combo.stage = AnchorStage::SelectGlowstone;
                 }
-                // The tap captured at the key press, not a fresh crosshair read.
-                self.anchor_use_at(place_hit);
-                self.anchor_combo.stage = AnchorStage::SelectGlowstone;
-            }
-            AnchorStage::SelectGlowstone => {
-                if !(0..3).all(|i| self.anchor_combo_has(i)) {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
+                AnchorStage::SelectGlowstone => {
+                    // Placement is predicted the tick it happens; an anchor
+                    // still missing means the server refused it, so stop on
+                    // the totem. The place spent its own stack: with a single
+                    // anchor that slot is empty now, so only the glowstone
+                    // and the totem are still required.
+                    if !self.anchor_combo_has(1)
+                        || !self.anchor_combo_has(2)
+                        || !self.is_anchor(self.world.block(target[0], target[1], target[2]))
+                    {
+                        self.anchor_combo_end();
+                        break;
+                    }
+                    self.anchor_select(self.anchor_combo.slots[1]);
+                    self.anchor_combo.stage = AnchorStage::Charge;
                 }
-                // Placement is predicted the tick it happens; an anchor still
-                // missing means the server refused it, so end on the anchor.
-                if !self.is_anchor(self.world.block(target[0], target[1], target[2])) {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
+                AnchorStage::Charge => {
+                    // Only glowstone on an anchor that still takes one more:
+                    // never a placed glowstone block, never the totem, never
+                    // a detonation.
+                    if !self.anchor_combo_has(1)
+                        || !self.anchor_combo_has(2)
+                        || !self.anchor_takes(target, self.stack_in(self.selected))
+                    {
+                        self.anchor_combo_end();
+                        break;
+                    }
+                    self.anchor_use_at(charge_hit);
+                    self.anchor_combo.stage = AnchorStage::SelectTotem;
                 }
-                self.selected = self.anchor_combo.slots[1];
-                self.anchor_combo.stage = AnchorStage::Charge;
-            }
-            AnchorStage::Charge => {
-                if self.selected != self.anchor_combo.slots[1]
-                    || !(0..3).all(|i| self.anchor_combo_has(i))
-                {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
+                AnchorStage::SelectTotem => {
+                    // The charge went out ahead of this swap; the final click
+                    // stays the player's own, with the totem already in hand.
+                    self.anchor_combo_end();
+                    break;
                 }
-                // Only glowstone on an anchor that still takes a charge: never
-                // a placed glowstone block, never the totem, never a detonation.
-                if !self.anchor_takes(target, self.stack_in(self.selected)) {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
-                }
-                self.anchor_use_at(charge_hit);
-                self.anchor_combo.stage = AnchorStage::SelectTotem;
-            }
-            AnchorStage::SelectTotem => {
-                // The charge went out last tick; the final click stays the
-                // player's own, with the totem already in hand for it.
-                if self.anchor_combo_has(2) {
-                    self.selected = self.anchor_combo.slots[2];
-                }
-                self.anchor_combo = AnchorCombo::default();
             }
         }
     }
