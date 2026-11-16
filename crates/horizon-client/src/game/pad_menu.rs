@@ -1481,7 +1481,9 @@ impl Game<'_> {
         let virtual_mouse = self.pad.touch_ui.virtual_mouse;
         #[cfg(not(target_os = "android"))]
         let virtual_mouse = false;
-        let pointer = if virtual_mouse {
+        // Android direct touches already update self.cursor in menus. Draw the
+        // same small pointer there too; gameplay still returns above.
+        let pointer = if virtual_mouse || cfg!(target_os = "android") {
             Some(self.cursor)
         } else {
             self.pad.menu.pos

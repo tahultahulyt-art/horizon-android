@@ -369,7 +369,7 @@ impl TouchControls {
         if e.preset_menu {
             if started {
                 for (i, name) in super::presets::NAMES.into_iter().enumerate() {
-                    if layout::contains([0.22, 0.26 + i as f32 * 0.13, 0.56, 0.10], p) {
+                    if layout::contains([0.22, 0.26 + i as f32 * 0.10, 0.56, 0.085], p) {
                         self.choose_preset(name);
                         e.preset_menu = false;
                         e.selected = None;
@@ -620,7 +620,7 @@ impl TouchControls {
                 plate(
                     b,
                     a,
-                    [0.22, 0.26 + i as f32 * 0.13, 0.56, 0.10],
+                    [0.22, 0.26 + i as f32 * 0.10, 0.56, 0.085],
                     name,
                     self.settings.active_layout == name,
                 );

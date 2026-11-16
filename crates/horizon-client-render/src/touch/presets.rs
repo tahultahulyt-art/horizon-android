@@ -55,9 +55,12 @@ struct SourceButton {
     toggle: bool,
     swipe: bool,
 }
-pub const NAMES: [&str; 4] = ["My controls", "PvP", "Sword", "Mace"];
+pub const NAMES: [&str; 6] = ["My controls", "PvP", "Sword", "Mace", "Mace+", "Crystal"];
 fn source_layout(name: &str, aspect: f32) -> Option<SavedLayout> {
-    let presets: Vec<SourcePreset> = serde_json::from_str(include_str!("presets.json")).ok()?;
+    let mut presets: Vec<SourcePreset> = serde_json::from_str(include_str!("presets.json")).ok()?;
+    let combat: Vec<SourcePreset> =
+        serde_json::from_str(include_str!("combat_presets.json")).ok()?;
+    presets.extend(combat);
     let source = presets.into_iter().find(|p| p.name == name)?;
     let aspect = aspect.max(0.1);
     let buttons = source
@@ -148,6 +151,38 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn combat_layouts_use_existing_manual_actions_and_preserve_edits() {
+        for name in ["Mace+", "Crystal"] {
+            let layout = source_layout(name, 20.0 / 9.0).unwrap();
+            assert!(layout.buttons.len() <= 64);
+            assert!(
+                layout
+                    .buttons
+                    .iter()
+                    .all(|b| CustomButton::valid_token(&b.key))
+            );
+            assert!(layout.buttons.iter().any(|b| b.key == "key.keyboard.g"));
+        }
+        let crystal = source_layout("Crystal", 16.0 / 9.0).unwrap();
+        assert!(
+            crystal.buttons.iter().any(
+                |b| b.caption == "Crystal 3" && b.key == "chord:key.keyboard.3+key.mouse.right"
+            )
+        );
+        assert!(
+            crystal
+                .buttons
+                .iter()
+                .any(|b| b.caption == "HIT" && b.key == "key.mouse.left")
+        );
+        let mut t = TouchControls::default();
+        assert!(t.choose_preset("Mace+"));
+        t.settings.custom_buttons[0].caption = "Custom inventory".into();
+        assert!(t.choose_preset("Crystal"));
+        assert!(t.choose_preset("Mace+"));
+        assert_eq!(t.settings.custom_buttons[0].caption, "Custom inventory");
     }
     #[test]
     fn switching_preserves_previous_edits_and_cancel_snapshot() {
