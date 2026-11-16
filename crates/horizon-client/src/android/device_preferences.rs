@@ -10,6 +10,8 @@ pub struct Settings {
     pub display_hz: u16,
     pub performance_hints: bool,
     pub gpu_profile: bool,
+    /// Pin the render thread to the CPU cores with the highest maximum frequency.
+    pub big_core: bool,
 }
 
 impl Settings {

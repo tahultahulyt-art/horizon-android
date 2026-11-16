@@ -14677,6 +14677,8 @@ impl Game<'_> {
             device_preferences.display_hz,
             self.focused,
         );
+        #[cfg(target_os = "android")]
+        crate::device_runtime::big_core(device_preferences.big_core);
         self.glint_frame = self.capture_glint_frame();
         if self.renderer.as_mut().is_some_and(|r| r.display_changed()) {
             self.apply_ui_settings();

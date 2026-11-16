@@ -102,6 +102,7 @@ pub(super) enum Action {
     ChooseWorkerLimit(u32),
     PerformanceHints,
     GpuProfile,
+    BigCore,
     /// Feature tile that is not built yet: show a coming-soon toast.
     ComingSoon(&'static str),
 }
@@ -685,11 +686,11 @@ impl Launcher {
             self.catalog.scroll = self
                 .catalog
                 .scroll
-                .clamp(0.0, (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
+                .clamp(0.0, (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0));
             self.list_view = Some([
                 195.0,
                 h - 130.0,
-                (18.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
+                (19.0 * row_height - (h - 130.0 - 195.0)).max(0.0),
             ]);
             for (i, (title, value, action)) in [
                 ("Rendering", c.renderer.label().to_owned(), Action::Renderer),
@@ -778,6 +779,16 @@ impl Launcher {
                     Action::GpuProfile,
                 ),
                 (
+                    "Big core renderer",
+                    if c.device.big_core {
+                        "On (experimental)"
+                    } else {
+                        "Off"
+                    }
+                    .into(),
+                    Action::BigCore,
+                ),
+                (
                     "Performance recording",
                     if c.record_performance {
                         "On / up to 30 min"
@@ -841,7 +852,7 @@ impl Launcher {
                 );
                 if matches!(
                     action,
-                    Action::PerformanceHints | Action::Immersive | Action::Cutout
+                    Action::PerformanceHints | Action::Immersive | Action::Cutout | Action::BigCore
                 ) {
                     toggle(
                         &mut ui,
@@ -856,6 +867,7 @@ impl Launcher {
                             Action::PerformanceHints => c.device.performance_hints,
                             Action::Immersive => c.screen.immersive,
                             Action::Cutout => c.screen.avoid_cutout,
+                            Action::BigCore => c.device.big_core,
                             _ => c.device.gpu_profile,
                         },
                         action,
@@ -1340,6 +1352,12 @@ impl Launcher {
             Some(Action::PerformanceHints) => {
                 self.catalog.config.device.performance_hints ^= true;
                 self.catalog.status="ADPF gives Android CPU frame-work hints on supported devices. It does not cap FPS or guarantee a speedup.".into();
+                self.catalog.config.save(&self.home)?;
+                crate::device_runtime::configure(self.catalog.config.device);
+            }
+            Some(Action::BigCore) => {
+                self.catalog.config.device.big_core ^= true;
+                self.catalog.status="Force the renderer to run on the big core: keeps the game's render thread on the fastest CPU cores. Experimental, off by default; applies in game, and may run hotter. Turn it off if it feels worse.".into();
                 self.catalog.config.save(&self.home)?;
                 crate::device_runtime::configure(self.catalog.config.device);
             }

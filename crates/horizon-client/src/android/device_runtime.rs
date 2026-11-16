@@ -162,6 +162,85 @@ impl Drop for Frame {
         }
     }
 }
+#[link(name = "c")]
+unsafe extern "C" {
+    fn sched_setaffinity(pid: c_int, size: usize, mask: *const u64) -> c_int;
+    fn sched_getaffinity(pid: c_int, size: usize, mask: *mut u64) -> c_int;
+}
+struct BigCore {
+    applied: bool,
+    probed: bool,
+    original: [u64; 16],
+    big: [u64; 16],
+    usable: bool,
+}
+thread_local! {static BIG_CORE:RefCell<BigCore>=const{RefCell::new(BigCore{applied:false,probed:false,original:[0;16],big:[0;16],usable:false})};}
+fn read_khz(cpu: usize) -> Option<u64> {
+    std::fs::read_to_string(format!(
+        "/sys/devices/system/cpu/cpu{cpu}/cpufreq/cpuinfo_max_freq"
+    ))
+    .ok()?
+    .trim()
+    .parse()
+    .ok()
+}
+/// Keep the calling (render) thread on the fastest CPU cores while the Big core option is on,
+/// and give it back its original CPU set when the option is turned off. Cheap after the first call.
+/// Every failure leaves the thread's scheduling exactly as Android set it.
+pub fn big_core(on: bool) {
+    BIG_CORE.with(|slot| {
+        let mut b = slot.borrow_mut();
+        if !on && !b.applied {
+            return;
+        }
+        if on && b.applied {
+            return;
+        }
+        unsafe {
+            if on {
+                if !b.probed {
+                    b.probed = true;
+                    let mut original = [0u64; 16];
+                    if sched_getaffinity(0, std::mem::size_of_val(&original), original.as_mut_ptr())
+                        != 0
+                    {
+                        return;
+                    }
+                    let mut best = 0u64;
+                    for cpu in 0..64usize {
+                        if original[cpu / 64] & (1 << (cpu % 64)) != 0 {
+                            if let Some(khz) = read_khz(cpu) {
+                                best = best.max(khz);
+                            }
+                        }
+                    }
+                    let mut big = [0u64; 16];
+                    let mut count = 0;
+                    let mut total = 0;
+                    for cpu in 0..64usize {
+                        if original[cpu / 64] & (1 << (cpu % 64)) != 0 {
+                            total += 1;
+                            if best > 0 && read_khz(cpu) == Some(best) {
+                                big[cpu / 64] |= 1 << (cpu % 64);
+                                count += 1;
+                            }
+                        }
+                    }
+                    b.original = original;
+                    b.big = big;
+                    // All cores equal (or unreadable): nothing to pin to.
+                    b.usable = count > 0 && count < total;
+                }
+                if b.usable && sched_setaffinity(0, std::mem::size_of_val(&b.big), b.big.as_ptr()) == 0 {
+                    b.applied = true;
+                }
+            } else if sched_setaffinity(0, std::mem::size_of_val(&b.original), b.original.as_ptr()) == 0
+            {
+                b.applied = false;
+            }
+        }
+    });
+}
 /// Gyro uses Android device axes, remapped by current display rotation.
 pub fn gyro(enabled: bool, sensitivity: f32, rotation: i32) -> [f32; 2] {
     STATE.with(|slot| {
@@ -204,7 +283,8 @@ pub fn configure(mut settings: crate::device_preferences::Settings) {
     settings.sanitize();
     let bits = u32::from(settings.display_hz)
         | (u32::from(settings.performance_hints) << 16)
-        | (u32::from(settings.gpu_profile) << 17);
+        | (u32::from(settings.gpu_profile) << 17)
+        | (u32::from(settings.big_core) << 18);
     PREFERENCES.store(bits, std::sync::atomic::Ordering::Relaxed);
 }
 pub fn preferences() -> crate::device_preferences::Settings {
@@ -213,5 +293,6 @@ pub fn preferences() -> crate::device_preferences::Settings {
         display_hz: bits as u16,
         performance_hints: bits & (1 << 16) != 0,
         gpu_profile: bits & (1 << 17) != 0,
+        big_core: bits & (1 << 18) != 0,
     }
 }
