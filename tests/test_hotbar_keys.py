@@ -47,15 +47,32 @@ class HotbarKeys(unittest.TestCase):
         self.assertIn('self.selected = slot', helper)
         self.assertIn('r.carried.replace(slot)', helper)
         self.assertIn('self.send(S::SetCarriedItem(play::SetCarriedItem { slot: slot as i16 }))', helper)
-    def test_ck_runs_in_one_tick(self):
+    def test_ck_one_visible_swap_per_tick(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
         self.assertIn('for _ in 0..6', body)
-        stage = body.split('AnchorStage::SelectAnchor =>', 1)[1].split('AnchorStage::Place =>', 1)[0]
-        self.assertIn('self.anchor_select(self.anchor_combo.slots[0])', stage)
-        self.assertNotIn('remote_use', stage)
+        anchor = body.split('AnchorStage::SelectAnchor =>', 1)[1].split('AnchorStage::Place =>', 1)[0]
+        self.assertIn('self.anchor_select(self.anchor_combo.slots[0])', anchor)
+        self.assertNotIn('remote_use', anchor)
+        glow = body.split('AnchorStage::SelectGlowstone =>', 1)[1].split('AnchorStage::Charge =>', 1)[0]
+        self.assertIn('self.anchor_select(self.anchor_combo.slots[1])', glow)
+        # Each hotbar swap is the last step of its tick, so the selection
+        # renders on the hotbar before the next one: anchor, then glowstone,
+        # then the totem the sequence ends on.
+        self.assertIn('break;', anchor.split('self.anchor_select', 1)[1])
+        self.assertIn('break;', glow.split('self.anchor_select', 1)[1])
         # The all-three-items recheck happens only before the first swap: the
         # place spends its own stack, so later stages require just the two.
         self.assertEqual(body.count('(0..3).all(|i| self.anchor_combo_has(i))'), 1)
+    def test_ck_attack_taps_cannot_abort(self):
+        guard = REMOTE.split('fn anchor_combo_running', 1)[1].split('/// One hotbar swap per tick', 1)[0]
+        self.assertNotIn('self.right', guard)
+        self.assertNotIn('self.left', guard)
+        self.assertNotIn('hands_busy', guard)
+        self.assertIn('Screen::Playing', guard)
+        self.assertIn('dead_or_dying', guard)
+        body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
+        self.assertIn('self.anchor_combo_running()', body)
+        self.assertNotIn('anchor_combo_allowed()', body)
     def test_ck_every_end_lands_on_the_totem(self):
         end = REMOTE.split('fn anchor_combo_end', 1)[1].split('fn anchor_combo_tick', 1)[0]
         self.assertIn('AnchorStage::SelectAnchor', end)

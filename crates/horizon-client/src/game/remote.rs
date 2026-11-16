@@ -6975,20 +6975,34 @@ impl Game<'_> {
         self.anchor_combo = AnchorCombo::default();
     }
 
-    /// The whole combo in one tick, what a fast player's clicks look like to
-    /// the server: swap, place, swap, charge, swap to the totem. Spreading
-    /// the steps over five ticks let any attack or use press in between (a
-    /// fight is full of them) cut the sequence off right after the glowstone
-    /// swap - the stall and the glowstone left in hand he reported. The uses
-    /// aim at the hit captured at the key press and never wait on
-    /// `use_delay`. There is no use after totem selection, even on timeout
-    /// or repeated key input.
+    /// Mid-sequence only the world may stop the combo, never his own attack
+    /// or use taps. A fight is full of them, and cutting the sequence off
+    /// between swaps is what stranded the glowstone in his hand in the
+    /// five-tick version. R and B still end it, on the totem.
+    fn anchor_combo_running(&self) -> bool {
+        #[cfg(target_os = "android")]
+        if super::freecam_runtime::active() { return false; }
+        self.screen == Screen::Playing
+            && self.remote.is_some()
+            && self.player.as_ref().is_some_and(|p| !p.health.dead_or_dying())
+            && !self.spectator()
+            && self.rocket_launch.stage == RocketStage::Off
+            && self.chest_mace.stage == ChestStage::Off
+    }
+
+    /// One hotbar swap per tick, each sent at once: the hotbar visibly steps
+    /// anchor, glowstone, totem, and every use still reaches the server right
+    /// behind its swap, like a fast player's clicks. The one-tick version
+    /// never showed the swaps; spreading every step over its own tick made
+    /// the anchor step feel slow. The uses aim at the hit captured at the
+    /// key press and never wait on `use_delay`. There is no use after totem
+    /// selection, even on timeout or repeated key input.
     fn anchor_combo_tick(&mut self) {
         if self.anchor_combo.stage == AnchorStage::Off {
             return;
         }
         self.anchor_combo.ticks += 1;
-        if !self.anchor_combo_allowed()
+        if !self.anchor_combo_running()
             || self.anchor_combo.dimension != Some(self.dim)
             || self.anchor_combo.ticks > 10
         {
@@ -7013,10 +7027,14 @@ impl Game<'_> {
                     }
                     self.anchor_select(self.anchor_combo.slots[0]);
                     self.anchor_combo.stage = AnchorStage::Place;
+                    // Stop here for the tick: the hotbar shows the anchor
+                    // before its place goes out next tick.
+                    break;
                 }
                 AnchorStage::Place => {
                     // The tap captured at the key press, not a fresh crosshair
-                    // read; the carried slot went out above, ahead of this use.
+                    // read; the carried slot went out last tick, ahead of this
+                    // use.
                     self.anchor_use_at(place_hit);
                     self.anchor_combo.stage = AnchorStage::SelectGlowstone;
                 }
@@ -7035,6 +7053,9 @@ impl Game<'_> {
                     }
                     self.anchor_select(self.anchor_combo.slots[1]);
                     self.anchor_combo.stage = AnchorStage::Charge;
+                    // The hotbar shows the glowstone for a tick before the
+                    // charge goes out.
+                    break;
                 }
                 AnchorStage::Charge => {
                     // Only glowstone on an anchor that still takes one more:
