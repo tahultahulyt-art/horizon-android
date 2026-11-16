@@ -9,11 +9,15 @@
 use super::remote_chunks::{ChunkDecoder, ChunkFormat, Next};
 use super::{ChestStage, Dim, Game, Mining, RocketStage, Screen};
 /// CK's bounded sequence. No stage uses the selected totem or detonates an anchor.
+/// The two clicks keep the hit captured at the key press, so camera movement
+/// during the sequence cannot move or lose the target.
 #[derive(Default)]
 pub(super) struct AnchorCombo {
     stage: AnchorStage,
     ticks: u32,
     target: Option<[i32; 3]>,
+    place_hit: Option<super::Hit>,
+    charge_hit: Option<super::Hit>,
     dimension: Option<Dim>,
     slots: [usize; 3],
 }
@@ -6884,14 +6888,36 @@ impl Game<'_> {
         }
         let Some(stack) = self.stack_in(slots[0]).cloned() else { return true; };
         let Some((pos, _)) = self.remote_can_place(&hit, &stack) else { return true; };
+        let target = [pos.x, pos.y, pos.z];
+        // The glowstone click lands on the placed anchor itself, on the face
+        // a player would tap: the anchor's face along the placement
+        // direction. A live re-pick cannot guarantee this once the camera moves.
+        let face = hit.face;
+        let point = [
+            f64::from(target[0]) + 0.5 + f64::from(face[0]) * 0.5,
+            f64::from(target[1]) + 0.5 + f64::from(face[1]) * 0.5,
+            f64::from(target[2]) + 0.5 + f64::from(face[2]) * 0.5,
+        ];
         self.anchor_combo = AnchorCombo {
             stage: AnchorStage::SelectAnchor,
             ticks: 0,
-            target: Some([pos.x, pos.y, pos.z]),
+            target: Some(target),
+            place_hit: Some(hit),
+            charge_hit: Some(super::Hit { pos: target, face, point }),
             dimension: Some(self.dim),
             slots: [slots[0], slots[1], slots[2]],
         };
         true
+    }
+
+    /// One use aimed at a captured hit rather than the live crosshair: CK's
+    /// clicks land where the player tapped at the key press, wherever the
+    /// camera has moved since. `forced_hit` is restored before returning.
+    fn anchor_use_at(&mut self, hit: super::Hit) -> bool {
+        let previous = self.forced_hit.replace(hit);
+        let done = self.remote_use_block(Hand::Main);
+        self.forced_hit = previous;
+        done
     }
 
     fn anchor_combo_allowed(&self) -> bool {
@@ -6918,9 +6944,13 @@ impl Game<'_> {
             .is_some_and(|s| &*s.item == ANCHOR_ITEMS[index])
     }
 
-    /// At most one use per stage. Both uses are guarded by the current
-    /// crosshair, hotbar slot and block state. There is no use after totem
-    /// selection, even on timeout or repeated key input.
+    /// One step a tick, what a fast player does: swap, place, swap, charge,
+    /// swap to the totem. The uses aim at the hit captured at the key press
+    /// and never wait on `use_delay`, so nothing stalls mid-sequence; the
+    /// final totem selection runs the tick after the charge without waiting
+    /// on the block update, so the sequence cannot end on the glowstone.
+    /// There is no use after totem selection, even on timeout or repeated
+    /// key input.
     fn anchor_combo_tick(&mut self) {
         let stage = self.anchor_combo.stage;
         if stage == AnchorStage::Off {
@@ -6929,12 +6959,16 @@ impl Game<'_> {
         self.anchor_combo.ticks += 1;
         if !self.anchor_combo_allowed()
             || self.anchor_combo.dimension != Some(self.dim)
-            || self.anchor_combo.ticks > 60
+            || self.anchor_combo.ticks > 10
         {
             self.anchor_combo = AnchorCombo::default();
             return;
         }
-        let Some(target) = self.anchor_combo.target else {
+        let (Some(target), Some(place_hit), Some(charge_hit)) = (
+            self.anchor_combo.target,
+            self.anchor_combo.place_hit,
+            self.anchor_combo.charge_hit,
+        ) else {
             self.anchor_combo = AnchorCombo::default();
             return;
         };
@@ -6951,38 +6985,24 @@ impl Game<'_> {
             }
             AnchorStage::Place => {
                 if self.selected != self.anchor_combo.slots[0]
-                    || !self.anchor_combo_has(0)
-                    || !self.anchor_combo_has(1)
-                    || !self.anchor_combo_has(2)
+                    || !(0..3).all(|i| self.anchor_combo_has(i))
                 {
                     self.anchor_combo = AnchorCombo::default();
                     return;
                 }
-                if self.use_delay > 0 { return; }
-                let Some(hit) = self.pick() else {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
-                };
-                let stack = self.stack_in(self.selected).cloned().unwrap();
-                // Recheck placement: camera movement may have changed the target.
-                if self.is_anchor(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]))
-                    || !self.remote_can_place(&hit, &stack)
-                        .is_some_and(|(p, _)| [p.x, p.y, p.z] == target)
-                {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
-                }
-                self.remote_use_block(Hand::Main);
-                self.use_delay = 4;
+                // The tap captured at the key press, not a fresh crosshair read.
+                self.anchor_use_at(place_hit);
                 self.anchor_combo.stage = AnchorStage::SelectGlowstone;
             }
             AnchorStage::SelectGlowstone => {
-                if !self.anchor_combo_has(1) || !self.anchor_combo_has(2) {
+                if !(0..3).all(|i| self.anchor_combo_has(i)) {
                     self.anchor_combo = AnchorCombo::default();
                     return;
                 }
-                // Wait for placement/prediction without re-sending a place click.
+                // Placement is predicted the tick it happens; an anchor still
+                // missing means the server refused it, so end on the anchor.
                 if !self.is_anchor(self.world.block(target[0], target[1], target[2])) {
+                    self.anchor_combo = AnchorCombo::default();
                     return;
                 }
                 self.selected = self.anchor_combo.slots[1];
@@ -6990,38 +7010,23 @@ impl Game<'_> {
             }
             AnchorStage::Charge => {
                 if self.selected != self.anchor_combo.slots[1]
-                    || !self.anchor_combo_has(1)
-                    || !self.anchor_combo_has(2)
+                    || !(0..3).all(|i| self.anchor_combo_has(i))
                 {
                     self.anchor_combo = AnchorCombo::default();
                     return;
                 }
-                if self.use_delay > 0 { return; }
-                let state = self.world.block(target[0], target[1], target[2]);
-                let uncharged = self.pack.assets.registry.state(state)
-                    .is_some_and(|s| s.properties.get("charges").map(String::as_str) == Some("0"));
-                if !self.is_anchor(state) || !uncharged
-                    || !self.pick().is_some_and(|hit| hit.pos == target)
-                {
+                // Only glowstone on an anchor that still takes a charge: never
+                // a placed glowstone block, never the totem, never a detonation.
+                if !self.anchor_takes(target, self.stack_in(self.selected)) {
                     self.anchor_combo = AnchorCombo::default();
                     return;
                 }
-                // Only glowstone on an uncharged anchor. Never use the totem.
-                self.remote_use_block(Hand::Main);
-                self.use_delay = 4;
+                self.anchor_use_at(charge_hit);
                 self.anchor_combo.stage = AnchorStage::SelectTotem;
             }
             AnchorStage::SelectTotem => {
-                let state = self.world.block(target[0], target[1], target[2]);
-                if !self.is_anchor(state) {
-                    self.anchor_combo = AnchorCombo::default();
-                    return;
-                }
-                let charged = self.pack.assets.registry.state(state)
-                    .and_then(|s| s.properties.get("charges"))
-                    .and_then(|v| v.parse::<u8>().ok())
-                    .is_some_and(|v| v > 0);
-                if !charged { return; }
+                // The charge went out last tick; the final click stays the
+                // player's own, with the totem already in hand for it.
                 if self.anchor_combo_has(2) {
                     self.selected = self.anchor_combo.slots[2];
                 }

@@ -19,19 +19,29 @@ class HotbarKeys(unittest.TestCase):
         self.assertLess(body.index('let Some(slots)'), body.index('self.anchor_combo = AnchorCombo'))
     def test_ck_uses_only_place_and_charge(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
-        self.assertEqual(body.count('self.remote_use_block(Hand::Main)'), 2)
+        self.assertEqual(body.count('self.anchor_use_at('), 2)
+        helper = REMOTE.split('fn anchor_use_at', 1)[1].split('fn anchor_combo_tick', 1)[0]
+        self.assertEqual(helper.count('self.remote_use_block(Hand::Main)'), 1)
+        self.assertIn('self.forced_hit = previous', helper)
         totem = body.split('AnchorStage::SelectTotem =>', 1)[1]
         self.assertNotIn('remote_use', totem)
+        self.assertNotIn('anchor_use_at', totem)
         self.assertIn('self.selected = self.anchor_combo.slots[2]', totem)
         self.assertNotIn('tweak_click', body)
         self.assertNotIn('UseItemOn', body)
-    def test_ck_guards_unintended_charge_and_retries(self):
+    def test_ck_has_no_crosshair_recheck_or_use_delay_wait(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
-        self.assertIn('self.anchor_combo.ticks > 60', body)
-        self.assertIn('Some("0")', body)
-        self.assertIn('hit.pos == target', body)
-        self.assertIn('self.use_delay = 4', body)
+        self.assertIn('self.anchor_combo.ticks > 10', body)
+        self.assertIn('self.anchor_takes(target, self.stack_in(self.selected))', body)
         self.assertIn('self.anchor_combo.stage = AnchorStage::SelectTotem', body)
+        self.assertNotIn('self.use_delay', body)
+        self.assertNotIn('hit.pos == target', body)
+        self.assertNotIn('self.pick()', body)
+        self.assertNotIn('charges', body)
+    def test_ck_captures_both_hits_at_key_press(self):
+        body = REMOTE.split('fn anchor_combo_key_press', 1)[1].split('fn anchor_combo_allowed', 1)[0]
+        self.assertIn('place_hit: Some(hit)', body)
+        self.assertIn('charge_hit: Some(super::Hit { pos: target, face, point })', body)
     def test_ck_selection_precedes_use_in_separate_stage(self):
         body = REMOTE.split('fn anchor_combo_tick', 1)[1].split('fn auto_mlg_prepare', 1)[0]
         stage = body.split('AnchorStage::SelectAnchor =>', 1)[1].split('AnchorStage::Place =>', 1)[0]
