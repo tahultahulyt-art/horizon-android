@@ -27,6 +27,11 @@ impl FrameGraph {
     pub fn record_scene(&mut self, line: String) {
         self.scene = Some(line);
     }
+    /// Average frame milliseconds over the recorded window, if any frames ran.
+    pub fn avg_frame_ms(&self) -> Option<f32> {
+        let n = self.frames.len();
+        (n > 0).then(|| self.frames.iter().map(|f| f.0).sum::<f32>() / n as f32)
+    }
     pub fn draw(&self, mode: Overlay, batch: &mut HudBatch, atlas: &HudAtlas) {
         if mode == Overlay::Off || self.frames.is_empty() {
             return;

@@ -113,12 +113,20 @@ impl Game<'_> {
     /// 30-tick emitter) and its sound, heard here only (`playLocalSound`),
     /// and the player's own rumble.
     pub(super) fn totem_event(&mut self, body: Body, own: bool) {
+        // Risiya: the full 30-tick burst (~16 particles a tick, up to ~480 a
+        // pop) is the biggest fight-time particle pile; at the stepped-down
+        // Particles option a third of it still reads clearly as a pop.
+        let life = if self.particles.particle_level >= 1 {
+            10
+        } else {
+            30
+        };
         self.particles.tracking_emitter_for(
             ParticleOptions::simple(ParticleType::TotemOfUndying),
             body.at,
             body.width,
             body.height,
-            30,
+            life,
         );
         self.audio
             .play_unshared("minecraft:item.totem.use", Some(body.at), 1.0, 1.0);

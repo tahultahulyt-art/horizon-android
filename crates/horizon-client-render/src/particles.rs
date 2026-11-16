@@ -1405,11 +1405,17 @@ impl ParticleEngine {
         radius: f32,
         is_air: &dyn Fn([i32; 3]) -> bool,
     ) {
-        let ty = if small {
+        let mut ty = if small {
             ParticleType::Explosion
         } else {
             ParticleType::ExplosionEmitter
         };
+        // Risiya: crystal/anchor spam stacks emitters (each throws 6 big quads
+        // a tick for 8 ticks). Past 2 live emitters the extra blast is lost in
+        // the pile, so draw the single flash instead.
+        if matches!(ty, ParticleType::ExplosionEmitter) && self.live_explosion_emitters() >= 2 {
+            ty = ParticleType::Explosion;
+        }
         self.add(&ParticleOptions::simple(ty), center, [1.0, 0.0, 0.0]);
         self.explosion_blocks(center, radius, block_count, is_air);
     }
@@ -1424,6 +1430,13 @@ impl ParticleEngine {
                 [movement[0] * k, movement[1], movement[2] * k],
             );
         }
+    }
+    /// Live `ExplosionEmitter` seeds (the huge explosion's smoke source).
+    fn live_explosion_emitters(&self) -> usize {
+        self.particles
+            .iter()
+            .filter(|p| !p.removed && matches!(p.behaviour, Behaviour::ExplosionSeed))
+            .count()
     }
     /// `ClientExplosionTracker` with `Level.DEFAULT_EXPLOSION_BLOCK_PARTICLES`.
     pub fn explosion_blocks(

@@ -358,8 +358,14 @@ impl Game<'_> {
             );
         }
         // Risiya: run one Particles option lower (All -> Decreased, Decreased ->
-        // Minimal) to cut particle CPU and fill on this phone.
-        self.particles.particle_level = self.settings.particles.saturating_add(1).min(2);
+        // Minimal) to cut particle CPU and fill on this phone. While the recent
+        // frame average runs slow (fights), drop one step more; it steps back up
+        // on its own when the average recovers.
+        let mut particle_level = self.settings.particles.saturating_add(1).min(2);
+        if particle_level < 2 && self.frame_graph.avg_frame_ms().is_some_and(|ms| ms > 18.0) {
+            particle_level += 1;
+        }
+        self.particles.particle_level = particle_level;
         if let Some(e) = eye {
             self.particles.camera = e;
         }
