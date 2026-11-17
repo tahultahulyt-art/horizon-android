@@ -2629,7 +2629,7 @@ impl Game<'_> {
             .map(|p| p.bounds())
     }
 
-    pub(super) fn guest_attack(&mut self, host: &mut LanHost, conn: u32, id: i32) {
+    fn guest_attack(&mut self, host: &mut LanHost, conn: u32, id: i32) {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else {
             return;
         };
@@ -3226,7 +3226,6 @@ impl Game<'_> {
 
     /// Per tick, for every guest: dig, use items, pick up drops, die.
     pub(super) fn tick_guests(&mut self, host: &mut LanHost) {
-        self.tick_practice(host);
         self.tick_guest_cameras(host);
         self.lan_merchant_tick(host);
         self.lan_stations_tick(host);

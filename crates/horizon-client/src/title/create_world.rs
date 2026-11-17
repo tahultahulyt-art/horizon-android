@@ -22,8 +22,6 @@ pub const DIFFICULTIES: [&str; 4] = ["peaceful", "easy", "normal", "hard"];
 /// WorldCreationUiState beyond the name and seed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorldOptions {
-    /// Original local-only Risiya practice world, never an ordinary save.
-    pub practice: bool,
     /// The open tab: Game, World or More.
     pub tab: usize,
     /// Survival locked to Hard, one life (`SelectedGameMode.HARDCORE`).
@@ -49,7 +47,6 @@ pub struct WorldOptions {
 impl Default for WorldOptions {
     fn default() -> Self {
         Self {
-            practice: false,
             tab: 0,
             hardcore: false,
             difficulty: 2,

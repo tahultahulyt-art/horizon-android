@@ -1821,19 +1821,3 @@ fn a_finished_optimization_stamps_the_level_data() {
     let version = root.get("Data").and_then(|d| d.get("DataVersion"));
     assert!(matches!(version, Some(Tag::Int(v)) if *v == horizon_world::DATA_VERSION));
 }
-
-#[test]
-fn practice_creates_a_separate_survival_flat_world_without_touching_existing_save() {
-    let mut f = Fixture::new();
-    f.world("Risiya Practice", "My existing world");
-    let action = f.click("PvP Practice");
-    let Action::Create { folder, creative, options, .. } = action else { panic!("not a create action") };
-    assert_eq!(folder, "Risiya Practice (1)");
-    assert!(!creative);
-    assert!(options.practice);
-    assert!(!options.commands(false));
-    assert_eq!(options.world_type, crate::save::WorldPreset::Flat);
-    assert!(!options.rules.bool("spawn_mobs"));
-    assert!(options.rules.bool("keep_inventory"));
-    assert!(f.title.saves.join("Risiya Practice/level.dat").is_file());
-}
