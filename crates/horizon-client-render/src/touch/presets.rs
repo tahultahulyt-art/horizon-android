@@ -11,6 +11,8 @@ pub struct SavedLayout {
     buttons: Vec<CustomButton>,
     visibility: [u8; 14],
     layouts: [[Placement; 14]; 3],
+    #[serde(default)]
+    pc_joystick_layouts: [Option<Placement>; 3],
     mode: Mode,
     scale: f32,
     left_handed: bool,
@@ -21,6 +23,7 @@ impl SavedLayout {
             buttons: settings.custom_buttons.clone(),
             visibility: settings.button_visibility,
             layouts: settings.layouts,
+            pc_joystick_layouts: settings.pc_joystick_layouts,
             mode: settings.mode,
             scale: settings.button_scale,
             left_handed: settings.left_handed,
@@ -30,6 +33,7 @@ impl SavedLayout {
         settings.custom_buttons = self.buttons;
         settings.button_visibility = self.visibility;
         settings.layouts = self.layouts;
+        settings.pc_joystick_layouts = self.pc_joystick_layouts;
         settings.mode = self.mode;
         settings.button_scale = self.scale;
         settings.left_handed = self.left_handed;
@@ -121,6 +125,7 @@ fn source_layout(name: &str, aspect: f32) -> Option<SavedLayout> {
         buttons,
         visibility: [2; 14],
         layouts: defaults.layouts,
+        pc_joystick_layouts: [None; 3],
         mode: Mode::Crosshair,
         scale: 1.0,
         left_handed: false,

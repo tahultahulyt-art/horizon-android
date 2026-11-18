@@ -163,6 +163,8 @@ pub struct Settings {
     pub analog_movement: bool,
     /// Reversible movement-button overlay; saved layouts are never rewritten.
     pub pc_joystick: bool,
+    /// Independent editable overlay placement; legacy movement layouts stay intact.
+    pub pc_joystick_layouts: [Option<Placement>; 3],
     pub sprint_button: bool,
     pub sprint_toggle: bool,
     pub inventory_controls: bool,
@@ -259,6 +261,7 @@ impl Default for Settings {
             named_layouts: std::collections::BTreeMap::new(),
             analog_movement: false,
             pc_joystick: false,
+            pc_joystick_layouts: [None; 3],
             sprint_button: true,
             sprint_toggle: false,
             inventory_controls: false,
@@ -498,6 +501,9 @@ impl Settings {
             for p in &mut button.layouts {
                 p.sanitize();
             }
+        }
+        for p in self.pc_joystick_layouts.iter_mut().flatten() {
+            p.sanitize();
         }
         for p in self.layouts.iter_mut().flatten() {
             p.sanitize();

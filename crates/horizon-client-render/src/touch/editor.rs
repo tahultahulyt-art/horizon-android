@@ -103,7 +103,11 @@ impl TouchControls {
                     }
                 }
             } else if layout::contains([0.32, 0.88, 0.36, 0.07], p) && e.selected.is_some() {
-                self.settings.button_visibility[e.selected.unwrap() as usize] = 2;
+                if e.selected == Some(Control::Move) && self.settings.pc_joystick {
+                    self.settings.pc_joystick = false;
+                } else {
+                    self.settings.button_visibility[e.selected.unwrap() as usize] = 2;
+                }
                 e.selected = None;
                 e.drag = None;
             } else if layout::contains([0.32, 0.61, 0.36, 0.06], p)
@@ -138,6 +142,30 @@ impl TouchControls {
         {
             let aspect = self.aspect();
             let slot = self.settings.slot(selected);
+            let overlay = selected == Control::Move && self.settings.pc_joystick;
+            if overlay {
+                let mode = self.settings.mode.index();
+                let mut seed = self.placement(Control::Move);
+                if self.settings.left_handed { seed.center[0] = 1.0 - seed.center[0]; }
+                let place = self.settings.pc_joystick_layouts[mode].get_or_insert(seed);
+                match drag {
+                    Drag::Control(offset) => {
+                        let mut center = [p[0] - offset[0], p[1] - offset[1]];
+                        if self.settings.left_handed { center[0] = 1.0 - center[0]; }
+                        let size = place.size.min(aspect).min(1.0);
+                        place.center = [center[0].clamp(size / aspect / 2.0, 1.0 - size / aspect / 2.0),
+                            center[1].clamp(size / 2.0, 1.0 - size / 2.0)];
+                    }
+                    Drag::Slider(index) => {
+                        let value = ((p[0] - 0.335) / 0.33).clamp(0.0, 1.0);
+                        if *index == 0 { place.size = 0.045 + value * 0.405; }
+                        else { place.opacity = value; }
+                    }
+                }
+                if ended { e.drag = None; }
+                self.editor = Some(e);
+                return false;
+            }
             let place = &mut self.settings.layouts[self.settings.mode.index()][slot];
             match drag {
                 Drag::Control(offset) => {

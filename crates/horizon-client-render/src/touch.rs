@@ -374,8 +374,17 @@ impl TouchControls {
                         .any(|(r, _)| matches!(r, Role::Button(Button::LeftTrigger)))))
     }
     fn placement(&self, c: Control) -> layout::Placement {
-        if c == Control::Move && self.pc_joystick_enabled()
-            && let Some(p) = self.pc_movement_placement() { return p; }
+        if c == Control::Move && self.pc_joystick_enabled() {
+            if let Some(mut p) = self.settings.pc_joystick_layouts[self.settings.mode.index()] {
+                if self.settings.left_handed { p.center[0] = 1.0 - p.center[0]; }
+                p.size = p.size.min(self.aspect()).min(1.0);
+                for (i, half) in [p.size / self.aspect() / 2.0, p.size / 2.0].into_iter().enumerate() {
+                    p.center[i] = p.center[i].clamp(half, 1.0 - half);
+                }
+                return p;
+            }
+            if let Some(p) = self.pc_movement_placement() { return p; }
+        }
         let mut p = self.settings.placement(c);
         let factory_swap = c == Control::Offhand
             && self.settings.layouts[self.settings.mode.index()][c as usize].center == [0.80, 0.96]
@@ -966,9 +975,13 @@ impl TouchControls {
                         (anchor[1] - point[1]) / radius,
                     ];
                     if self.pc_joystick_enabled() {
-                        // Full normal keyboard input after a short 8%-radius neutral zone.
-                        // No delayed releases, repeated presses or automatic sprint.
+                        // Full keyboard-strength input after a short neutral zone.
+                        // The player's own outer forward push requests ordinary sprint.
+                        let outer_push = state.left[0].hypot(state.left[1]) >= 0.85;
                         state.left = wasd::direction(state.left);
+                        if outer_push && state.left[1] > 0.0 {
+                            state.set(Button::LeftStick, true);
+                        }
                     } else if self.settings.mode == Mode::Dpad {
                         state.left = state
                             .left
@@ -2251,5 +2264,89 @@ mod reversible_pc_overlay_tests {
         assert_eq!(serde_json::to_vec(&t.settings).unwrap(),before);
         assert!(!t.visible(Control::Move));
         for i in 0..keys.len() {assert!(t.custom_button_visible(i));}
+    }
+}
+
+#[cfg(test)]
+mod pc_overlay_editor_regressions {
+    use super::*;
+    fn example() -> TouchControls {
+        let mut t=TouchControls::default();
+        t.settings.custom_buttons.clear();
+        for (i,key) in ["key.keyboard.w","key.keyboard.a","key.keyboard.s","key.keyboard.d","key.mouse.left","key.keyboard.space"].into_iter().enumerate() {
+            let mut b=CustomButton::new(key.into(),i);
+            b.layouts=[layout::Placement::new(0.12+(i%2) as f32*0.06,0.70+(i/2) as f32*0.05,0.08);3];
+            t.settings.custom_buttons.push(b);
+        }
+        t.settings.pc_joystick=true;t
+    }
+    fn edit(t:&mut TouchControls) {
+        let c=t.placement(Control::Move).center;
+        t.edit_touch(1,c,true,false);
+        t.edit_touch(1,[0.22,0.50],false,true);
+        let c=t.placement(Control::Move).center;
+        assert!((c[0]-0.22).abs()<0.001 && (c[1]-0.50).abs()<0.001);
+        t.edit_touch(2,[0.60,0.82],true,true);
+        t.edit_touch(3,[0.64,0.72],true,true);
+        assert!(t.placement(Control::Move).size>0.40);
+        t.edit_touch(4,[0.40,0.82],true,true);
+        t.edit_touch(5,[0.50,0.72],true,true);
+        assert!((t.placement(Control::Move).opacity-0.5).abs()<0.01);
+    }
+    #[test]
+    fn drag_size_opacity_save_reload_cancel_and_off_preserve_original_layouts() {
+        for left_handed in [false,true] {
+            let mut t=example();t.settings.left_handed=left_handed;
+            let before=serde_json::to_vec(&t.settings).unwrap();
+            let originals=serde_json::to_vec(&(&t.settings.layouts,&t.settings.custom_buttons,t.settings.button_visibility)).unwrap();
+            t.open_editor();edit(&mut t);
+            let adjusted=t.placement(Control::Move);
+            assert_eq!(serde_json::to_vec(&(&t.settings.layouts,&t.settings.custom_buttons,t.settings.button_visibility)).unwrap(),originals);
+            let path=std::env::temp_dir().join(format!("pc-editor-regression-{}-{left_handed}.json",std::process::id()));
+            t.settings.save_to(&path).unwrap();
+            let saved:Settings=serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();std::fs::remove_file(path).unwrap();
+            t.cancel_editor();assert_eq!(serde_json::to_vec(&t.settings).unwrap(),before);
+            t.settings=saved;
+            assert_eq!(t.placement(Control::Move).center,adjusted.center);
+            assert_eq!(t.placement(Control::Move).size,adjusted.size);
+            assert_eq!(t.placement(Control::Move).opacity,adjusted.opacity);
+            t.settings.pc_joystick=false;
+            for i in 0..4 {assert!(t.custom_button_visible(i));}
+            assert_eq!(serde_json::to_vec(&(&t.settings.layouts,&t.settings.custom_buttons,t.settings.button_visibility)).unwrap(),originals);
+            t.settings.pc_joystick=true;
+            assert_eq!(t.placement(Control::Move).center,adjusted.center);
+            t.open_editor();let c=t.placement(Control::Move).center;t.edit_touch(10,c,true,true);
+            t.edit_touch(11,[0.5,0.91],true,true);assert!(!t.settings.pc_joystick);
+            t.cancel_editor();assert!(t.settings.pc_joystick);
+        }
+    }
+    #[test]
+    fn edited_overlay_owns_only_its_mode() {
+        let mut t=example();t.open_editor();edit(&mut t);
+        assert!(t.settings.pc_joystick_layouts[0].is_some());
+        assert!(t.settings.pc_joystick_layouts[1].is_none());
+        assert!(t.settings.pc_joystick_layouts[2].is_none());
+    }
+}
+
+#[cfg(test)]
+mod pc_joystick_manual_push_sprint {
+    use super::*;
+    #[test]
+    fn only_physical_outer_forward_push_requests_normal_sprint() {
+        let mut t=TouchControls::default();t.settings.pc_joystick=true;
+        for (delta,sprint) in [([0.0,0.0],false),([0.0,0.25],false),([0.0,0.84],false),
+            ([0.0,0.9],true),([0.65,0.65],true),([-0.65,0.65],true),
+            ([1.0,0.0],false),([0.0,-1.0],false),([0.65,-0.65],false)] {
+            let p=t.placement(Control::Move);let r=p.size*0.5;
+            t.update(1,p.center,true,false);
+            t.update(1,[p.center[0]+delta[0]*r/t.aspect(),p.center[1]-delta[1]*r],false,false);
+            assert_eq!(t.state().held(Button::LeftStick),sprint,"{delta:?}");
+            t.update(1,p.center,false,true);
+            assert!(!t.state().held(Button::LeftStick));assert_eq!(t.state().left,[0.0,0.0]);
+        }
+        t.settings.pc_joystick=false;
+        let p=t.placement(Control::Move);t.update(2,[p.center[0],p.center[1]-p.size*0.49],true,false);
+        assert!(!t.state().held(Button::LeftStick),"other movement modes unchanged");
     }
 }
