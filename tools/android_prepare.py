@@ -59,8 +59,11 @@ def download_game(version, directory):
     entry = next((v for v in fetch_json(MANIFEST)['versions'] if v['id'] == version), None)
     if entry is None:
         raise ValueError(f"Mojang does not list Minecraft {version}")
-    # Mojang metadata may be republished: lab.download checks the catalog SHA-1,
-    # and client/server jar hashes are checked against the engine pins below.
+    # Build reproducibly from the already-audited official metadata. Mojang may
+    # republish the catalog entry for translations; retain the engine's pin.
+    checksum = pins['manifest_sha1']
+    entry = {'url': f'https://piston-meta.mojang.com/v1/packages/{checksum}/{version}.json',
+             'sha1': checksum}
     versions = directory / 'versions' / version
     manifest_path = versions / f'{version}.json'
     lab.download(entry['url'], manifest_path, entry['sha1'])
