@@ -8,6 +8,7 @@ use std::{
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 pub mod assist;
 pub mod attack_drag;
+mod aim_scaling;
 mod custom;
 mod editor;
 mod presets;
@@ -185,6 +186,7 @@ pub struct TouchControls {
     pub editor: Option<editor::Editor>,
     fingers: BTreeMap<u64, (Role, [f32; 2])>,
     attack_drags: BTreeMap<u64, attack_drag::AttackDrag>,
+    motion_times: BTreeMap<u64, Instant>,
     custom_fingers: BTreeMap<u64, String>,
     custom_events: Vec<(String, bool)>,
     custom_owners: BTreeMap<u64, usize>,
@@ -721,6 +723,10 @@ impl TouchControls {
     }
     /// Coordinates are fractions of the drawable surface. Returns a look delta.
     pub fn update(&mut self, id: u64, point: [f32; 2], started: bool, ended: bool) -> [f32; 2] {
+        let now = Instant::now();
+        let seconds = if started { self.motion_times.insert(id, now); 0.0 }
+            else if ended { self.motion_times.remove(&id); 0.0 }
+            else { self.motion_times.insert(id, now).map_or(0.0, |previous| now.duration_since(previous).as_secs_f32()) };
         if self.custom_update(id, point, started, ended) {
             return [0.0; 2];
         }
@@ -870,7 +876,9 @@ impl TouchControls {
                 [0.0; 2]
             };
             *previous = point;
-            return delta;
+            let attacking = self.state().triggers[1] > 0.0
+                || self.held_custom_tokens().any(|key| matches!(key, "key.mouse.left" | "action:key.attack"));
+            return aim_scaling::scale(delta, aspect, seconds, attacking, &self.settings);
         }
         [0.0; 2]
     }
@@ -887,6 +895,7 @@ impl TouchControls {
         self.clear_custom();
         self.fingers.clear();
         self.attack_drags.clear();
+        self.motion_times.clear();
         self.last_sneak_tap = None;
         self.sprint_latched = false;
         self.pending = PadState::default();
@@ -2348,5 +2357,42 @@ mod pc_joystick_manual_push_sprint {
         t.settings.pc_joystick=false;
         let p=t.placement(Control::Move);t.update(2,[p.center[0],p.center[1]-p.size*0.49],true,false);
         assert!(!t.state().held(Button::LeftStick),"other movement modes unchanged");
+    }
+}
+
+#[cfg(test)]
+mod touch_aim_scaling_integration {
+    use super::*;
+    #[test]
+    fn actual_look_drag_scales_for_custom_attack_hold_and_restores_on_release() {
+        let mut t=TouchControls::default();t.settings.custom_buttons.clear();
+        t.settings.attack_aim_scaling=true;t.settings.attack_aim_scale=0.5;
+        let mut hit=CustomButton::new("key.mouse.left".into(),0);
+        hit.layouts=[layout::Placement::new(0.75,0.75,0.1);3];t.settings.custom_buttons.push(hit);
+        t.update(1,[0.55,0.4],true,false);
+        let normal=t.update(1,[0.60,0.4],false,false);
+        assert!(normal[0]>0.0);
+        t.update(2,[0.75,0.75],true,false);
+        let attack=t.update(1,[0.65,0.4],false,false);
+        assert!((attack[0]/normal[0]-0.5).abs()<1e-5);
+        t.update(2,[0.75,0.75],false,true);
+        let restored=t.update(1,[0.70,0.4],false,false);
+        assert!((restored[0]/normal[0]-1.0).abs()<1e-5);
+        t.update(1,[0.70,0.4],false,true);assert!(t.motion_times.is_empty());
+        t.clear();assert!(t.motion_times.is_empty());
+    }
+    #[test]
+    fn builtin_attack_finger_and_movement_are_independent_of_scaling() {
+        let mut t=TouchControls::default();t.settings.custom_buttons.clear();
+        t.settings.attack_aim_scaling=true;t.settings.attack_aim_scale=0.25;t.settings.pc_joystick=true;
+        let p=t.placement(Control::Move);t.update(1,p.center,true,false);
+        t.update(1,[p.center[0],p.center[1]-p.size*0.46],false,false);
+        assert!(t.state().left[1]>0.0 && t.state().held(Button::LeftStick));
+        let a=t.placement(Control::Attack).center;t.update(2,a,true,false);
+        t.update(3,[0.55,0.4],true,false);
+        let delta=t.update(3,[0.60,0.4],false,false);
+        assert!((delta[0]-0.0125).abs()<1e-5);
+        assert!(t.state().left[1]>0.0 && t.state().held(Button::LeftStick));
+        t.clear();assert!(t.motion_times.is_empty());
     }
 }

@@ -141,6 +141,12 @@ pub struct Settings {
     pub sprint_with_joystick: bool,
     pub swap_jump_sneak: bool,
     pub sensitivity: f32,
+    /// Only scales physical camera drags while the player holds attack.
+    pub attack_aim_scaling: bool,
+    pub attack_aim_scale: f32,
+    /// Speed-based scaling of physical drags, never target-aware.
+    pub aim_acceleration: bool,
+    pub aim_acceleration_strength: f32,
     /// Smooth real finger input, never target-aware.
     pub aim_stabilizer: bool,
     /// 0-1 smoothing window for Shield Mode; user-controlled only.
@@ -244,6 +250,10 @@ impl Default for Settings {
             sprint_with_joystick: false,
             swap_jump_sneak: false,
             sensitivity: 1.0,
+            attack_aim_scaling: false,
+            attack_aim_scale: 1.0,
+            aim_acceleration: false,
+            aim_acceleration_strength: 0.0,
             aim_stabilizer: false,
             aim_stabilizer_strength: 0.25,
             aim_assist: false,
@@ -376,6 +386,12 @@ impl Settings {
                 0.0
             };
         }
+        self.attack_aim_scale = if self.attack_aim_scale.is_finite() {
+            self.attack_aim_scale.clamp(0.25, 1.0)
+        } else { 1.0 };
+        self.aim_acceleration_strength = if self.aim_acceleration_strength.is_finite() {
+            self.aim_acceleration_strength.clamp(0.0, 1.0)
+        } else { 0.0 };
         if !self.sensitivity.is_finite() {
             self.sensitivity = 1.0;
         }

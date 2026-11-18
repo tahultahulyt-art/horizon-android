@@ -197,6 +197,10 @@ impl Opt {
             Opt::TouchMouseSensitivity => "Virtual mouse sensitivity",
             Opt::TouchAnalog => "360-degree movement",
             Opt::TouchPcJoystick => "PC-response joystick",
+            Opt::TouchAttackAimScaling => "Attack aim scaling",
+            Opt::TouchAttackAimScale => "Attack sensitivity",
+            Opt::TouchAimAcceleration => "Aim acceleration",
+            Opt::TouchAimAccelerationStrength => "Curve strength",
             Opt::TouchCircleSize => "Touch circle size",
             Opt::TouchAttackSide => "Attack indicator side",
             Opt::TouchHorizontalMargin => "HUD margins: left / right",
@@ -368,6 +372,8 @@ impl Opt {
             Opt::AndroidGyroSensitivity => unit(s.touch.gyro_sensitivity, 0.1, 3.0),
             Opt::TouchAimStabilizerStrength => unit(s.touch.aim_stabilizer_strength, 0.0, 1.0),
             Opt::TouchAimAssistStrength => unit(s.touch.aim_assist_strength, 0.0, 0.3),
+            Opt::TouchAttackAimScale => unit(s.touch.attack_aim_scale, 0.25, 1.0),
+            Opt::TouchAimAccelerationStrength => unit(s.touch.aim_acceleration_strength, 0.0, 1.0),
             Opt::TouchSensitivity => unit(s.touch.sensitivity, 0.1, 10.0),
             Opt::TouchSensitivityHorizontal => unit(s.touch.sensitivity_horizontal, 0.1, 10.0),
             Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 10.0),
@@ -601,6 +607,10 @@ impl Opt {
             ),
             Opt::TouchButtonScale => Some(format!("{:.0}%", s.touch.button_scale * 100.0)),
             Opt::TouchPcJoystick => Some(if s.touch.pc_joystick { "ON" } else { "OFF" }.into()),
+            Opt::TouchAttackAimScaling => Some(if s.touch.attack_aim_scaling { "ON" } else { "OFF" }.into()),
+            Opt::TouchAimAcceleration => Some(if s.touch.aim_acceleration { "ON" } else { "OFF" }.into()),
+            Opt::TouchAttackAimScale => Some(format!("{:.0}%", s.touch.attack_aim_scale * 100.0)),
+            Opt::TouchAimAccelerationStrength => Some(format!("{:.0}%", s.touch.aim_acceleration_strength * 100.0)),
             Opt::TouchAnalog => Some(if s.touch.analog_movement { "ON" } else { "OFF" }.into()),
             Opt::TouchInteract => Some(
                 if s.touch.contextual_interact {
@@ -1024,6 +1034,8 @@ impl Opt {
             ),
             Opt::AndroidGyroSensitivity => s.touch.gyro_sensitivity = 0.1 + v * 2.9,
             Opt::TouchAimStabilizerStrength => s.touch.aim_stabilizer_strength = v,
+            Opt::TouchAttackAimScale => s.touch.attack_aim_scale = 0.25 + v * 0.75,
+            Opt::TouchAimAccelerationStrength => s.touch.aim_acceleration_strength = v,
             Opt::TouchAimAssistStrength => s.touch.aim_assist_strength = v * 0.3,
             Opt::TouchSensitivity => s.touch.sensitivity = 0.1 + v * 9.9,
             Opt::TouchSensitivityHorizontal => s.touch.sensitivity_horizontal = 0.1 + v * 9.9,
@@ -1147,6 +1159,8 @@ impl Opt {
             }
             Opt::AndroidGyroscope => s.touch.gyroscope ^= true,
             Opt::TouchPcJoystick => s.touch.pc_joystick ^= true,
+            Opt::TouchAttackAimScaling => s.touch.attack_aim_scaling ^= true,
+            Opt::TouchAimAcceleration => s.touch.aim_acceleration ^= true,
             Opt::TouchAnalog => s.touch.analog_movement ^= true,
             Opt::TouchInteract => s.touch.contextual_interact ^= true,
             Opt::TouchOffhand => s.touch.offhand_button ^= true,
@@ -1879,6 +1893,8 @@ fn option_widget(s: &Settings, opt: Opt, x: f32, y: f32, w: f32) -> Widget {
             s.touch.mode != crate::touch::Mode::Dpad && !s.touch.sprint_with_joystick
         }
         Opt::TouchAimStabilizerStrength => s.touch.aim_stabilizer,
+        Opt::TouchAttackAimScale => s.touch.attack_aim_scaling,
+        Opt::TouchAimAccelerationStrength => s.touch.aim_acceleration,
         Opt::TouchAimAssist | Opt::TouchAimAssistStrength => {
             s.touch.aim_stabilizer && s.touch.crosshair()
         }
@@ -2102,6 +2118,17 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     };
     if let Some(key) = key.filter(|key| lang::has(key)) {
         tip = Some(tr(&key));
+    }
+    if let Act::Cycle(opt) = act {
+        match opt {
+            Opt::TouchAttackAimScaling | Opt::TouchAttackAimScale => tip = Some(Text::literal(
+                "Only scales your own touch camera drags while Hit/attack is held. 100% is unchanged; lower is slower. No target tracking, snapping or automatic attack. Default OFF / 100%.",
+            )),
+            Opt::TouchAimAcceleration | Opt::TouchAimAccelerationStrength => tip = Some(Text::literal(
+                "Slow finger drags turn less; fast swipes turn farther. Strength 0% is unchanged. At full strength, gain is bounded to 65%-150%. Touch only, no target data. Default OFF / 0%.",
+            )),
+            _ => {}
+        }
     }
     if let Act::Cycle(Opt::TouchAimAssist) = act {
         tip = Some(Text::literal(
@@ -2793,6 +2820,10 @@ impl OptionsUi {
                 #[cfg(target_os = "android")]
                 let controls = {
                     let mut controls = controls;
+                    controls.push(Opt::TouchAttackAimScaling);
+                    controls.push(Opt::TouchAttackAimScale);
+                    controls.push(Opt::TouchAimAcceleration);
+                    controls.push(Opt::TouchAimAccelerationStrength);
                     controls.push(Opt::TouchPcJoystick);
                     controls.push(Opt::TouchAutoSprint);
                     controls.push(Opt::TouchControlOpacity);
