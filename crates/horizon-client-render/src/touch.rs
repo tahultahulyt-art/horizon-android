@@ -215,6 +215,30 @@ pub struct TouchControls {
     sprint_latched: bool,
 }
 impl TouchControls {
+    pub fn pc_joystick_enabled(&self) -> bool {
+        self.settings.pc_joystick || self.settings.mode == Mode::Wasd
+    }
+    pub(super) fn movement_only_button(&self, index: usize) -> bool {
+        let key = &self.settings.custom_buttons[index].key;
+        let mut parts = key.strip_prefix("chord:").unwrap_or(key).split('+').peekable();
+        parts.peek().is_some() && parts.all(|p| matches!(p,
+            "key.keyboard.w" | "key.keyboard.a" | "key.keyboard.s" | "key.keyboard.d"
+            | "action:key.forward" | "action:key.left" | "action:key.back" | "action:key.right"))
+    }
+    pub(super) fn custom_button_visible(&self, index: usize) -> bool {
+        !self.pc_joystick_enabled() || !self.movement_only_button(index)
+    }
+    fn pc_movement_placement(&self) -> Option<layout::Placement> {
+        let mut rects = self.settings.custom_buttons.iter().enumerate()
+            .filter(|(i, _)| self.movement_only_button(*i)).map(|(i, _)| self.custom_rect(i));
+        let first = rects.next()?;
+        let bounds = rects.fold([first[0], first[1], first[0]+first[2], first[1]+first[3]], |b,r|
+            [b[0].min(r[0]), b[1].min(r[1]), b[2].max(r[0]+r[2]), b[3].max(r[1]+r[3])]);
+        let mut p = self.settings.placement(Control::Move);
+        p.center = [(bounds[0]+bounds[2])*0.5,(bounds[1]+bounds[3])*0.5];
+        p.size = ((bounds[2]-bounds[0])*self.aspect()).min(bounds[3]-bounds[1])*0.88;
+        Some(p)
+    }
     pub fn crosshair(&self) -> bool {
         self.force_crosshair || self.settings.crosshair()
     }
@@ -283,7 +307,7 @@ impl TouchControls {
         })
     }
     fn dynamic_joystick(&self) -> bool {
-        self.settings.dynamic_joystick && !matches!(self.settings.mode, Mode::Dpad | Mode::Wasd)
+        self.settings.dynamic_joystick && !self.pc_joystick_enabled() && self.settings.mode != Mode::Dpad
     }
     pub fn control_at_point(&self, point: [f32; 2]) -> bool {
         self.custom_at(point).is_some() || self.control_at(point).is_some()
@@ -328,6 +352,7 @@ impl TouchControls {
             // A forced aim layout already provides the ordinary use/raise-shield button.
             return false;
         }
+        if c == Control::Move && self.pc_joystick_enabled() { return true; }
         if self.auxiliary_only && !Self::auxiliary_control(c) {
             return false;
         }
@@ -349,6 +374,8 @@ impl TouchControls {
                         .any(|(r, _)| matches!(r, Role::Button(Button::LeftTrigger)))))
     }
     fn placement(&self, c: Control) -> layout::Placement {
+        if c == Control::Move && self.pc_joystick_enabled()
+            && let Some(p) = self.pc_movement_placement() { return p; }
         let mut p = self.settings.placement(c);
         let factory_swap = c == Control::Offhand
             && self.settings.layouts[self.settings.mode.index()][c as usize].center == [0.80, 0.96]
@@ -453,7 +480,7 @@ impl TouchControls {
                 if dynamic && anchor.is_none() && self.editor.is_none() {
                     continue;
                 }
-                if self.settings.mode == Mode::Wasd {
+                if self.pc_joystick_enabled() {
                     let center = [x + size * 0.5, y + size * 0.5];
                     let alpha = color.to_le_bytes()[3];
                     let disc = |b: &mut HudBatch, center: [f32; 2], radius: f32, tint: u32| {
@@ -924,7 +951,7 @@ impl TouchControls {
     }
     pub fn state(&self) -> PadState {
         let mut state = PadState::default();
-        if self.settings.mode != Mode::Wasd && self.custom_auto_sprint() {
+        if !self.pc_joystick_enabled() && self.custom_auto_sprint() {
             state.set(Button::LeftStick, true);
         }
         if self.settings.sprint_toggle && self.settings.sprint_button && self.sprint_latched {
@@ -938,7 +965,7 @@ impl TouchControls {
                         (point[0] - anchor[0]) * self.aspect() / radius,
                         (anchor[1] - point[1]) / radius,
                     ];
-                    if self.settings.mode == Mode::Wasd {
+                    if self.pc_joystick_enabled() {
                         // Full normal keyboard input after a short 8%-radius neutral zone.
                         // No delayed releases, repeated presses or automatic sprint.
                         state.left = wasd::direction(state.left);
@@ -952,7 +979,7 @@ impl TouchControls {
                     let sprint = state.left[1] > 1.0;
                     let length = state.left[0].hypot(state.left[1]).max(1.0);
                     state.left = state.left.map(|v| v / length);
-                    if !matches!(self.settings.mode, Mode::Dpad | Mode::Wasd)
+                    if !self.pc_joystick_enabled() && self.settings.mode != Mode::Dpad
                         && self.settings.sprint_with_joystick
                         && sprint
                     {
@@ -2186,4 +2213,43 @@ mod pc_wasd_integration_tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(restored.mode, Mode::Wasd);
     }
+}
+
+#[cfg(test)]
+mod reversible_pc_overlay_tests {
+    use super::*;
+    #[test]
+    fn only_movement_keys_hide_and_saved_layout_is_byte_identical_after_toggle() {
+        let mut t = TouchControls::default();
+        t.settings.custom_buttons.clear();
+        let keys = ["key.keyboard.w", "chord:key.keyboard.w+key.keyboard.a",
+            "key.keyboard.a", "key.keyboard.s", "key.keyboard.d", "key.mouse.left",
+            "key.keyboard.space", "key.keyboard.left.shift", "chord:key.keyboard.w+key.keyboard.space"];
+        for (i,key) in keys.into_iter().enumerate() {
+            let mut button = CustomButton::new(key.into(),i);
+            button.layouts = [layout::Placement::new(0.1+(i%3) as f32*0.07,0.4+(i/3) as f32*0.12,0.09);3];
+            t.settings.custom_buttons.push(button);
         }
+        t.settings.button_visibility[Control::Move as usize] = 2;
+        t.settings.sprint_with_joystick = true;
+        let before = serde_json::to_vec(&t.settings).unwrap();
+        let rects: Vec<_> = (0..keys.len()).map(|i|t.custom_rect(i)).collect();
+        assert!(!t.settings.pc_joystick);
+        t.settings.pc_joystick = true;
+        for i in 0..keys.len() {
+            assert_eq!(t.custom_button_visible(i), i>=5);
+            assert_eq!(t.custom_rect(i),rects[i]);
+        }
+        assert!(t.visible(Control::Move));
+        assert!(t.pc_movement_placement().is_some());
+        let p=t.placement(Control::Move);
+        t.update(1,[p.center[0],p.center[1]-p.size*0.1],true,false);
+        assert!(t.state().left[1]>0.0);
+        assert!(!t.state().held(Button::LeftStick));
+        t.clear();
+        t.settings.pc_joystick = false;
+        assert_eq!(serde_json::to_vec(&t.settings).unwrap(),before);
+        assert!(!t.visible(Control::Move));
+        for i in 0..keys.len() {assert!(t.custom_button_visible(i));}
+    }
+}

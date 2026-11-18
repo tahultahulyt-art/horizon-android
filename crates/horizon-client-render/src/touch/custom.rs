@@ -201,7 +201,7 @@ impl TouchControls {
     pub fn custom_at(&self, point: [f32; 2]) -> Option<usize> {
         (0..self.settings.custom_buttons.len())
             .rev()
-            .find(|&i| layout::contains(self.custom_rect(i), point))
+            .find(|&i| self.custom_button_visible(i) && layout::contains(self.custom_rect(i), point))
     }
     fn held_input_snapshot(&self) -> Vec<String> {
         self.held_custom_tokens().map(str::to_owned).collect()
@@ -302,6 +302,7 @@ impl TouchControls {
     }
     pub(super) fn draw_custom(&self, b: &mut HudBatch, a: &HudAtlas) {
         for (i, button) in self.settings.custom_buttons.iter().enumerate() {
+            if !self.custom_button_visible(i) { continue; }
             let p = self.custom_placement(i);
             let bounds = self.custom_rect(i);
             let rect = [

@@ -161,6 +161,8 @@ pub struct Settings {
     pub active_layout: String,
     pub named_layouts: std::collections::BTreeMap<String, super::presets::SavedLayout>,
     pub analog_movement: bool,
+    /// Reversible movement-button overlay; saved layouts are never rewritten.
+    pub pc_joystick: bool,
     pub sprint_button: bool,
     pub sprint_toggle: bool,
     pub inventory_controls: bool,
@@ -256,6 +258,7 @@ impl Default for Settings {
             active_layout: "My controls".into(),
             named_layouts: std::collections::BTreeMap::new(),
             analog_movement: false,
+            pc_joystick: false,
             sprint_button: true,
             sprint_toggle: false,
             inventory_controls: false,

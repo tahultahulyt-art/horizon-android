@@ -813,6 +813,7 @@ pub enum Opt {
     /// Horizon's controller settings (`horizon-controller.txt`).
     TouchMode,
     TouchAnalog,
+    TouchPcJoystick,
     TouchCircleSize,
     TouchAttackSide,
     TouchHorizontalMargin,

@@ -196,6 +196,7 @@ impl Opt {
             Opt::TouchAttackButtonLook => "Look while attacking",
             Opt::TouchMouseSensitivity => "Virtual mouse sensitivity",
             Opt::TouchAnalog => "360-degree movement",
+            Opt::TouchPcJoystick => "PC-response joystick",
             Opt::TouchCircleSize => "Touch circle size",
             Opt::TouchAttackSide => "Attack indicator side",
             Opt::TouchHorizontalMargin => "HUD margins: left / right",
@@ -599,6 +600,7 @@ impl Opt {
                 .into(),
             ),
             Opt::TouchButtonScale => Some(format!("{:.0}%", s.touch.button_scale * 100.0)),
+            Opt::TouchPcJoystick => Some(if s.touch.pc_joystick { "ON" } else { "OFF" }.into()),
             Opt::TouchAnalog => Some(if s.touch.analog_movement { "ON" } else { "OFF" }.into()),
             Opt::TouchInteract => Some(
                 if s.touch.contextual_interact {
@@ -1144,6 +1146,7 @@ impl Opt {
                 s.touch.split_controls = split;
             }
             Opt::AndroidGyroscope => s.touch.gyroscope ^= true,
+            Opt::TouchPcJoystick => s.touch.pc_joystick ^= true,
             Opt::TouchAnalog => s.touch.analog_movement ^= true,
             Opt::TouchInteract => s.touch.contextual_interact ^= true,
             Opt::TouchOffhand => s.touch.offhand_button ^= true,
@@ -2790,6 +2793,7 @@ impl OptionsUi {
                 #[cfg(target_os = "android")]
                 let controls = {
                     let mut controls = controls;
+                    controls.push(Opt::TouchPcJoystick);
                     controls.push(Opt::TouchAutoSprint);
                     controls.push(Opt::TouchControlOpacity);
                     // Shield Mode toggle + strength, reachable from the normal Controls page.
