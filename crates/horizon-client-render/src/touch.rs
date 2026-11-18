@@ -12,6 +12,52 @@ mod custom;
 mod editor;
 mod presets;
 pub mod stabilizer;
+pub mod wasd {
+    //! Short-travel eight-direction input. This never changes Minecraft movement speed.
+    pub fn direction(delta: [f32; 2]) -> [f32; 2] {
+        let [x, y] = delta;
+        if !x.is_finite() || !y.is_finite() || x.hypot(y) <= 0.08 {
+            return [0.0; 2];
+        }
+        let threshold = x.abs().max(y.abs()) * (std::f32::consts::SQRT_2 - 1.0);
+        let axis = |v: f32| if v.abs() > threshold { v.signum() } else { 0.0 };
+        let out = [axis(x), axis(y)];
+        let length = out[0].hypot(out[1]).max(1.0);
+        out.map(|v| v / length)
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[test]
+        fn neutral_and_invalid_are_still() {
+            for v in [
+                [0.0, 0.0],
+                [0.04, 0.04],
+                [0.08, 0.0],
+                [f32::NAN, 1.0],
+                [1.0, f32::INFINITY],
+            ] {
+                assert_eq!(direction(v), [0.0; 2]);
+            }
+        }
+        #[test]
+        fn short_motion_is_full_strength_and_reverses_immediately() {
+            assert_eq!(direction([0.09, 0.0]), [1.0, 0.0]);
+            assert_eq!(direction([-0.09, 0.0]), [-1.0, 0.0]);
+            assert_eq!(direction([0.0, 0.09]), [0.0, 1.0]);
+            assert_eq!(direction([0.0, -0.09]), [0.0, -1.0]);
+            assert_eq!(direction([0.0, 0.0]), [0.0; 2]);
+        }
+        #[test]
+        fn diagonals_are_normalized_and_axis_jitter_is_ignored() {
+            let d = direction([0.1, 0.1]);
+            assert!((d[0].hypot(d[1]) - 1.0).abs() < 0.00001);
+            assert!(d[0] > 0.7 && d[1] > 0.7);
+            assert_eq!(direction([0.01, 0.1]), [0.0, 1.0]);
+            assert_eq!(direction([999.0, -0.01]), [1.0, 0.0]);
+        }
+    }
+}
 pub use custom::CustomButton;
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
@@ -237,7 +283,7 @@ impl TouchControls {
         })
     }
     fn dynamic_joystick(&self) -> bool {
-        self.settings.dynamic_joystick && self.settings.mode != Mode::Dpad
+        self.settings.dynamic_joystick && !matches!(self.settings.mode, Mode::Dpad | Mode::Wasd)
     }
     pub fn control_at_point(&self, point: [f32; 2]) -> bool {
         self.custom_at(point).is_some() || self.control_at(point).is_some()
@@ -407,7 +453,25 @@ impl TouchControls {
                 if dynamic && anchor.is_none() && self.editor.is_none() {
                     continue;
                 }
-                if self.settings.mode == Mode::Dpad {
+                if self.settings.mode == Mode::Wasd {
+                    let cell = size / 3.0;
+                    for (dx, dy, label, pressed) in [
+                        (1.0, 0.0, "W", state.left[1] > 0.2),
+                        (0.0, 1.0, "A", state.left[0] < -0.2),
+                        (1.0, 2.0, "S", state.left[1] < -0.2),
+                        (2.0, 1.0, "D", state.left[0] > 0.2),
+                    ] {
+                        text_button(
+                            b,
+                            a,
+                            [x + dx * cell, y + dy * cell, cell, cell],
+                            label,
+                            pressed,
+                            color,
+                            false,
+                        );
+                    }
+                } else if self.settings.mode == Mode::Dpad {
                     let cell = size / 3.0;
                     for (dx, dy, name) in [
                         (0, -1, "up"),
@@ -863,7 +927,7 @@ impl TouchControls {
     }
     pub fn state(&self) -> PadState {
         let mut state = PadState::default();
-        if self.custom_auto_sprint() {
+        if self.settings.mode != Mode::Wasd && self.custom_auto_sprint() {
             state.set(Button::LeftStick, true);
         }
         if self.settings.sprint_toggle && self.settings.sprint_button && self.sprint_latched {
@@ -877,7 +941,11 @@ impl TouchControls {
                         (point[0] - anchor[0]) * self.aspect() / radius,
                         (anchor[1] - point[1]) / radius,
                     ];
-                    if self.settings.mode == Mode::Dpad {
+                    if self.settings.mode == Mode::Wasd {
+                        // Full normal keyboard input after a short 8%-radius neutral zone.
+                        // No delayed releases, repeated presses or automatic sprint.
+                        state.left = wasd::direction(state.left);
+                    } else if self.settings.mode == Mode::Dpad {
                         state.left = state
                             .left
                             .map(|v| if v.abs() < 1.0 / 3.0 { 0.0 } else { v.signum() });
@@ -887,7 +955,7 @@ impl TouchControls {
                     let sprint = state.left[1] > 1.0;
                     let length = state.left[0].hypot(state.left[1]).max(1.0);
                     state.left = state.left.map(|v| v / length);
-                    if self.settings.mode != Mode::Dpad
+                    if !matches!(self.settings.mode, Mode::Dpad | Mode::Wasd)
                         && self.settings.sprint_with_joystick
                         && sprint
                     {
@@ -2083,3 +2151,42 @@ mod tests {
         assert!(!touch.poll_state().held(Button::LeftStick));
     }
 }
+
+#[cfg(test)]
+mod pc_wasd_integration_tests {
+    use super::*;
+    #[test]
+    fn short_movement_release_and_look_fingers_are_independent() {
+        let mut t = TouchControls::default();
+        t.settings.mode = Mode::Wasd;
+        let center = t.placement(Control::Move).center;
+        let radius = t.placement(Control::Move).size / 2.0;
+        let right = [center[0] + radius * 0.10 / t.aspect(), center[1]];
+        t.update(1, center, true, false);
+        assert_eq!(t.state().left, [0.0; 2]);
+        t.update(1, right, false, false);
+        assert_eq!(t.state().left, [1.0, 0.0]);
+        assert!(!t.state().held(Button::LeftStick));
+        t.update(2, [0.55, 0.40], true, false);
+        let look = t.update(2, [0.62, 0.40], false, false);
+        assert!(look[0] > 0.0);
+        assert_eq!(t.state().left, [1.0, 0.0]);
+        t.update(1, right, false, true);
+        assert_eq!(t.state().left, [0.0; 2]);
+        assert!(t.look_active());
+        t.clear();
+        assert!(!t.look_active());
+    }
+    #[test]
+    fn default_is_unchanged_and_new_scheme_reuses_saved_crosshair_positions() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.mode, Mode::Crosshair);
+        let old = settings.placement(Control::Move).center;
+        settings.mode = Mode::Wasd;
+        assert!(settings.crosshair());
+        assert_eq!(settings.placement(Control::Move).center, old);
+        let restored: Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restored.mode, Mode::Wasd);
+    }
+                }

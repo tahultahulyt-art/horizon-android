@@ -9,25 +9,29 @@ pub enum Mode {
     Crosshair,
     Tap,
     Dpad,
+    /// Opt-in short-travel digital joystick, sharing the saved crosshair layout.
+    Wasd,
 }
 impl Mode {
-    pub const ALL: [Self; 3] = [Self::Crosshair, Self::Tap, Self::Dpad];
+    pub const ALL: [Self; 4] = [Self::Crosshair, Self::Tap, Self::Dpad, Self::Wasd];
     pub fn label(self) -> &'static str {
         match self {
             Self::Crosshair => "Joystick & aim crosshair",
             Self::Tap => "Joystick & tap to interact",
             Self::Dpad => "D-Pad & tap to interact",
+            Self::Wasd => "PC WASD joystick & crosshair",
         }
     }
-    pub const SCHEMES: [(Self, bool, &str); 4] = [
+    pub const SCHEMES: [(Self, bool, &str); 5] = [
         (Self::Crosshair, false, "Joystick & aim crosshair"),
         (Self::Tap, false, "Joystick & tap to interact"),
         (Self::Dpad, false, "D-Pad & tap to interact"),
         (Self::Dpad, true, "D-Pad & aim crosshair"),
+        (Self::Wasd, false, "PC WASD joystick & crosshair"),
     ];
     pub fn index(self) -> usize {
         match self {
-            Self::Crosshair => 0,
+            Self::Crosshair | Self::Wasd => 0,
             Self::Tap => 1,
             Self::Dpad => 2,
         }
@@ -507,7 +511,7 @@ impl Settings {
         std::fs::rename(temp, path)
     }
     pub fn crosshair(&self) -> bool {
-        self.mode == Mode::Crosshair || self.split_controls
+        matches!(self.mode, Mode::Crosshair | Mode::Wasd) || self.split_controls
     }
     pub fn visible(&self, c: Control) -> bool {
         match self.button_visibility[c as usize] {
@@ -721,4 +725,4 @@ mod quick_controls_tests {
             serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(roundtrip.control_opacity, 0.5);
     }
-}
+        }
