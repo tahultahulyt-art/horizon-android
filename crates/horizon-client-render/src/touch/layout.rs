@@ -19,7 +19,7 @@ impl Mode {
             Self::Crosshair => "Joystick & aim crosshair",
             Self::Tap => "Joystick & tap to interact",
             Self::Dpad => "D-Pad & tap to interact",
-            Self::Wasd => "PC WASD joystick & crosshair",
+            Self::Wasd => "PC-response joystick & crosshair",
         }
     }
     pub const SCHEMES: [(Self, bool, &str); 5] = [
@@ -27,7 +27,7 @@ impl Mode {
         (Self::Tap, false, "Joystick & tap to interact"),
         (Self::Dpad, false, "D-Pad & tap to interact"),
         (Self::Dpad, true, "D-Pad & aim crosshair"),
-        (Self::Wasd, false, "PC WASD joystick & crosshair"),
+        (Self::Wasd, false, "PC-response joystick & crosshair"),
     ];
     pub fn index(self) -> usize {
         match self {
@@ -438,7 +438,10 @@ impl Settings {
             self.custom_buttons.push(chest);
         }
         // CK uses the free K key, with the same saved-layout migration as R/B.
-        if !self.custom_buttons.iter().any(|b| b.key == "key.keyboard.k")
+        if !self
+            .custom_buttons
+            .iter()
+            .any(|b| b.key == "key.keyboard.k")
             && self.custom_buttons.len() < 64
         {
             let mut ck =
@@ -449,7 +452,10 @@ impl Settings {
         }
         // The totem pull's button (the G key), under CK: in play it opens
         // the inventory, there it sends a totem to the hotbar.
-        if !self.custom_buttons.iter().any(|b| b.key == "key.keyboard.g")
+        if !self
+            .custom_buttons
+            .iter()
+            .any(|b| b.key == "key.keyboard.g")
             && self.custom_buttons.len() < 64
         {
             let mut totem =
@@ -725,4 +731,4 @@ mod quick_controls_tests {
             serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(roundtrip.control_opacity, 0.5);
     }
-        }
+}
