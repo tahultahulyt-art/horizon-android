@@ -453,7 +453,22 @@ impl TouchControls {
                 if dynamic && anchor.is_none() && self.editor.is_none() {
                     continue;
                 }
-                if self.settings.mode == Mode::Dpad {
+                if self.settings.mode == Mode::Wasd {
+                    let center = [x + size * 0.5, y + size * 0.5];
+                    let alpha = color.to_le_bytes()[3];
+                    let disc = |b: &mut HudBatch, center: [f32; 2], radius: f32, tint: u32| {
+                        for pair in circle_points().windows(2) {
+                            let point = |p: [f32; 2]| [center[0] + p[0]*radius, center[1] + p[1]*radius];
+                            b.fill_quad(a, [center, point(pair[0]), point(pair[1]), center], tint);
+                        }
+                    };
+                    disc(b, center, size * 0.48, rgba(35, 40, 48, alpha));
+                    ring(b, a, center, size * 0.48, rgba(210, 215, 225, alpha));
+                    let knob = [center[0] + state.left[0] * size * 0.25,
+                        center[1] - state.left[1] * size * 0.25];
+                    disc(b, knob, size * 0.17, rgba(160, 170, 185, alpha));
+                    ring(b, a, knob, size * 0.17, rgba(235, 240, 250, alpha));
+                } else if self.settings.mode == Mode::Dpad {
                     let cell = size / 3.0;
                     for (dx, dy, name) in [
                         (0, -1, "up"),
@@ -2171,4 +2186,4 @@ mod pc_wasd_integration_tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(restored.mode, Mode::Wasd);
     }
-                      }
+        }
