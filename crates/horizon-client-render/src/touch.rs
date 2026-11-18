@@ -453,25 +453,7 @@ impl TouchControls {
                 if dynamic && anchor.is_none() && self.editor.is_none() {
                     continue;
                 }
-                if self.settings.mode == Mode::Wasd {
-                    let cell = size / 3.0;
-                    for (dx, dy, label, pressed) in [
-                        (1.0, 0.0, "W", state.left[1] > 0.2),
-                        (0.0, 1.0, "A", state.left[0] < -0.2),
-                        (1.0, 2.0, "S", state.left[1] < -0.2),
-                        (2.0, 1.0, "D", state.left[0] > 0.2),
-                    ] {
-                        text_button(
-                            b,
-                            a,
-                            [x + dx * cell, y + dy * cell, cell, cell],
-                            label,
-                            pressed,
-                            color,
-                            false,
-                        );
-                    }
-                } else if self.settings.mode == Mode::Dpad {
+                if self.settings.mode == Mode::Dpad {
                     let cell = size / 3.0;
                     for (dx, dy, name) in [
                         (0, -1, "up"),
@@ -2189,4 +2171,4 @@ mod pc_wasd_integration_tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(restored.mode, Mode::Wasd);
     }
-}
+                      }
