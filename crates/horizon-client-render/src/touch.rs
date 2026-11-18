@@ -1795,14 +1795,14 @@ mod tests {
         assert_eq!(t.pointer(), Some([0.7, 0.4]));
     }
     #[test]
-    fn all_four_schemes_are_selectable_and_large_icons_remain_inside_the_surface() {
+    fn all_schemes_are_selectable_and_large_icons_remain_inside_the_surface() {
         let mut t = TouchControls::default();
         for (i, (mode, split, _)) in Mode::SCHEMES.into_iter().enumerate() {
             t.settings.mode = mode;
             t.settings.split_controls = split;
             assert_eq!(t.settings.mode, mode);
             assert_eq!(t.settings.split_controls, split);
-            assert_eq!(t.settings.crosshair(), i == 0 || i == 3);
+            assert_eq!(t.settings.crosshair(), i == 0 || i == 3 || i == 4);
         }
         t.cancel_editor();
         t.settings.layouts[0][Control::Jump as usize].center = [0.99, 0.99];
@@ -2189,4 +2189,4 @@ mod pc_wasd_integration_tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(restored.mode, Mode::Wasd);
     }
-                }
+}
