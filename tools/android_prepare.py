@@ -64,22 +64,23 @@ def download_game(version, directory):
     versions = directory / 'versions' / version
     manifest_path = versions / f'{version}.json'
     lab.download(entry['url'], manifest_path, entry['sha1'])
-    # Seed the engine-pinned manifest so horizon-prepare always has an accepted version file
-    # even when upstream Mojang metadata is republished.
+    # The engine reads the pinned manifest, so the download list must come
+    # from the same document: Mojang republished 26.3 with renamed LWJGL
+    # coordinates, and the fresh manifest no longer matches the engine's
+    # expectations. Download the pinned manifest with its SHA-1 checked and
+    # fail loudly when it is unavailable.
     pinned_manifest = pins.get('manifest_sha1')
     if pinned_manifest:
         destination = ROOT / '.local/minecraft' / version / 'manifest.json'
-        if not destination.is_file():
-            try:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                lab.download(
-                    f"https://piston-meta.mojang.com/v1/packages/{pinned_manifest}/{version}.json",
-                    destination,
-                    pinned_manifest,
-                )
-            except Exception:
-                pass
-    manifest = json.loads(manifest_path.read_text())
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        lab.download(
+            f"https://piston-meta.mojang.com/v1/packages/{pinned_manifest}/{version}.json",
+            destination,
+            pinned_manifest,
+        )
+        manifest = json.loads(destination.read_text())
+    else:
+        manifest = json.loads(manifest_path.read_text())
     files = []
     for side in ['client', 'server']:
         artifact = manifest['downloads'][side]
