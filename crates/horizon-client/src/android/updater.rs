@@ -132,6 +132,9 @@ pub fn check_for_update() -> Result<Option<ReleaseInfo>, String> {
 
 /// Initiates an update check on a background worker thread.
 pub fn check_in_background() {
+    // AimFix build: our signature cannot install GoyDevv's releases, so the
+    // in-app updater stays off instead of offering updates that fail.
+    return;
     if CHECKING.swap(true, Ordering::SeqCst) {
         return;
     }

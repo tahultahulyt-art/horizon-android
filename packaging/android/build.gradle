@@ -12,7 +12,7 @@ android {
     namespace 'dev.horizon.android'
     compileSdk 35
     defaultConfig {
-        applicationId providers.gradleProperty('appId').getOrElse('com.goydevv.horizon')
+        applicationId providers.gradleProperty('appId').getOrElse('com.goydevv.horizon.aimfix')
         minSdk providers.gradleProperty('minSdk').getOrElse('28').toInteger()
         targetSdk 35
         versionCode providers.gradleProperty('devVersionCode').getOrElse('30').toInteger()

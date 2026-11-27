@@ -198,6 +198,10 @@ impl Opt {
             Opt::TouchAnalog => "360-degree movement",
             Opt::TouchCircleSize => "Touch circle size",
             Opt::TouchAttackSide => "Attack indicator side",
+            Opt::TouchAttackAimScaling => "Attack aim scaling",
+            Opt::TouchAttackAimScale => "Attack sensitivity",
+            Opt::TouchAimAcceleration => "Aim acceleration",
+            Opt::TouchAimAccelerationStrength => "Curve strength",
             Opt::TouchHorizontalMargin => "HUD margins: left / right",
             Opt::TouchVerticalMargin => "HUD margins: top / bottom",
             Opt::TouchSensitivity => "Touch sensitivity",
@@ -362,6 +366,8 @@ impl Opt {
             Opt::TouchSensitivity => unit(s.touch.sensitivity, 0.1, 3.0),
             Opt::TouchSensitivityHorizontal => unit(s.touch.sensitivity_horizontal, 0.1, 3.0),
             Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 3.0),
+            Opt::TouchAttackAimScale => unit(s.touch.attack_aim_scale, 0.25, 1.0),
+            Opt::TouchAimAccelerationStrength => unit(s.touch.aim_acceleration_strength, 0.0, 1.0),
             Opt::TouchMouseSensitivity => unit(s.touch.virtual_mouse_sensitivity, 0.25, 3.0),
             Opt::TouchButtonScale => unit(s.touch.button_scale, 0.5, 2.0),
             Opt::Fov => unit(s.fov, 30.0, 110.0),
@@ -519,6 +525,8 @@ impl Opt {
                     .to_owned(),
             ),
             Opt::TouchCircleSize => Some(format!("{} px", s.touch.circle_size.round())),
+            Opt::TouchAttackAimScale => Some(format!("{:.0}%", s.touch.attack_aim_scale * 100.0)),
+            Opt::TouchAimAccelerationStrength => Some(format!("{:.0}%", s.touch.aim_acceleration_strength * 100.0)),
             Opt::TouchAttackSide => Some(
                 if s.touch.attack_indicator_left {
                     "Left"
@@ -1000,6 +1008,8 @@ impl Opt {
             Opt::TouchSensitivity => s.touch.sensitivity = 0.1 + v * 2.9,
             Opt::TouchSensitivityHorizontal => s.touch.sensitivity_horizontal = 0.1 + v * 2.9,
             Opt::TouchSensitivityVertical => s.touch.sensitivity_vertical = 0.1 + v * 2.9,
+            Opt::TouchAttackAimScale => s.touch.attack_aim_scale = 0.25 + v * 0.75,
+            Opt::TouchAimAccelerationStrength => s.touch.aim_acceleration_strength = v,
             Opt::TouchMouseSensitivity => s.touch.virtual_mouse_sensitivity = 0.25 + v * 2.75,
             Opt::TouchButtonScale => s.touch.button_scale = 0.5 + v * 1.5,
             Opt::FovEffects | Opt::DarknessPulsing => s.file.set(
@@ -1127,6 +1137,8 @@ impl Opt {
             Opt::TouchDynamicJoystick => s.touch.dynamic_joystick ^= true,
             Opt::TouchCrosshairGestures => s.touch.crosshair_gestures ^= true,
             Opt::TouchAttackButtonLook => s.touch.attack_button_look ^= true,
+            Opt::TouchAttackAimScaling => s.touch.attack_aim_scaling ^= true,
+            Opt::TouchAimAcceleration => s.touch.aim_acceleration ^= true,
             Opt::AndroidInputMode => {
                 let all = crate::android_gamepad::InputMode::ALL;
                 let i = all
@@ -1848,6 +1860,8 @@ fn option_widget(s: &Settings, opt: Opt, x: f32, y: f32, w: f32) -> Widget {
         Opt::TouchInteract => !s.touch.crosshair(),
         Opt::TouchCrosshairGestures | Opt::TouchAttackButtonLook => s.touch.crosshair(),
         Opt::TouchSwapJumpSneak => s.touch.mode == crate::touch::Mode::Dpad,
+        Opt::TouchAttackAimScale => s.touch.attack_aim_scaling,
+        Opt::TouchAimAccelerationStrength => s.touch.aim_acceleration,
         _ => true,
     };
     if !opt.available()
@@ -2045,6 +2059,14 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
         let WKind::Slider { opt, .. } = &wd.kind else {
             return None;
         };
+        let literal = match opt {
+            Opt::TouchAttackAimScale => Some("Only scales your own touch camera drags while Hit/attack is held. 100% is unchanged; lower is slower. No target tracking, snapping or automatic attack. Default OFF / 100%."),
+            Opt::TouchAimAccelerationStrength => Some("Slow finger drags turn less; fast swipes turn farther. Strength 0% is unchanged. At full strength, gain is bounded to 65%-150%. Touch only, no target data. Default OFF / 0%."),
+            _ => None,
+        };
+        if let Some(text) = literal {
+            return Some(Text::literal(text));
+        }
         let key = opt.tooltip_key(s);
         return lang::has(&key).then(|| tr(&key));
     };
@@ -2065,6 +2087,17 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     };
     if let Some(key) = key.filter(|key| lang::has(key)) {
         tip = Some(tr(&key));
+    }
+    if let Act::Cycle(opt) = act {
+        match opt {
+            Opt::TouchAttackAimScaling => tip = Some(Text::literal(
+                "Only scales your own touch camera drags while Hit/attack is held. 100% is unchanged; lower is slower. No target tracking, snapping or automatic attack. Default OFF / 100%.",
+            )),
+            Opt::TouchAimAcceleration => tip = Some(Text::literal(
+                "Slow finger drags turn less; fast swipes turn farther. Strength 0% is unchanged. At full strength, gain is bounded to 65%-150%. Touch only, no target data. Default OFF / 0%.",
+            )),
+            _ => {}
+        }
     }
     if let Act::Cycle(Opt::GraphicsBackend) = act {
         tip = Some(graphics_api_tooltip(s));
@@ -2778,6 +2811,10 @@ impl OptionsUi {
                     Opt::TouchSensitivity,
                     Opt::TouchSensitivityHorizontal,
                     Opt::TouchSensitivityVertical,
+                    Opt::TouchAttackAimScaling,
+                    Opt::TouchAttackAimScale,
+                    Opt::TouchAimAcceleration,
+                    Opt::TouchAimAccelerationStrength,
                 ]));
                 rows.push(Row::Header("HUD Buttons & Layout"));
                 rows.extend(pairs(&[
@@ -2786,6 +2823,7 @@ impl OptionsUi {
                     Opt::TouchButtonScale,
                     Opt::TouchCircleSize,
                     Opt::TouchAttackSide,
+                    Opt::AttackIndicator,
                     Opt::DebugGuiScale,
                     Opt::TouchLeftHand,
                     Opt::TouchSwapJumpSneak,

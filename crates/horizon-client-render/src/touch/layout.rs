@@ -445,6 +445,12 @@ pub struct Settings {
     pub sensitivity: f32,
     pub sensitivity_horizontal: f32,
     pub sensitivity_vertical: f32,
+    /// Only scales physical camera drags while the player holds attack.
+    pub attack_aim_scaling: bool,
+    pub attack_aim_scale: f32,
+    /// Speed-based scaling of physical drags, never target-aware.
+    pub aim_acceleration: bool,
+    pub aim_acceleration_strength: f32,
     #[serde(default)]
     pub invert_y: bool,
     pub offhand_button: bool,
@@ -605,6 +611,10 @@ impl Default for Settings {
             sensitivity: 1.0,
             sensitivity_horizontal: 1.0,
             sensitivity_vertical: 1.0,
+            attack_aim_scaling: false,
+            attack_aim_scale: 1.0,
+            aim_acceleration: false,
+            aim_acceleration_strength: 0.0,
             invert_y: false,
             offhand_button: false,
             shield_button: true,
@@ -806,6 +816,12 @@ impl Settings {
         } else {
             1.0
         };
+        self.attack_aim_scale = if self.attack_aim_scale.is_finite() {
+            self.attack_aim_scale.clamp(0.25, 1.0)
+        } else { 1.0 };
+        self.aim_acceleration_strength = if self.aim_acceleration_strength.is_finite() {
+            self.aim_acceleration_strength.clamp(0.0, 1.0)
+        } else { 0.0 };
         self.resolution_scale_percent = if self.resolution_scale_percent == 0 {
             100
         } else {

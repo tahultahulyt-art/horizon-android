@@ -32,6 +32,7 @@ pub mod custom;
 pub mod editor;
 pub use custom::CustomButton;
 pub use editor::{Editor, EditorDragKind, PickerStep};
+mod aim_scaling;
 pub mod layout;
 pub use layout::{
     Control, ControlStyle, JoystickMoveArea, JoystickStyle, Mode, Placement, PresetMeta, Settings,
@@ -201,6 +202,7 @@ pub struct TouchControls {
     pub inventory_shift: bool,
     pub editor: Option<editor::Editor>,
     fingers: BTreeMap<u64, (Role, [f32; 2])>,
+    motion_times: BTreeMap<u64, Instant>,
     passthrough_fingers: BTreeSet<u64>,
     custom_fingers: BTreeMap<u64, Vec<String>>,
     custom_last_pos: BTreeMap<u64, [f32; 2]>,
@@ -250,6 +252,7 @@ impl Default for TouchControls {
             goy_rendered_by_ui: false,
             editor: None,
             fingers: BTreeMap::new(),
+            motion_times: BTreeMap::new(),
             passthrough_fingers: BTreeSet::new(),
             custom_fingers: BTreeMap::new(),
             custom_last_pos: BTreeMap::new(),
@@ -877,6 +880,10 @@ impl TouchControls {
     }
     /// Coordinates are fractions of the drawable surface. Returns a look delta.
     pub fn update(&mut self, id: u64, point: [f32; 2], started: bool, ended: bool) -> [f32; 2] {
+        let now = Instant::now();
+        let seconds = if started { self.motion_times.insert(id, now); 0.0 }
+            else if ended { self.motion_times.remove(&id); 0.0 }
+            else { self.motion_times.insert(id, now).map_or(0.0, |previous| now.duration_since(previous).as_secs_f32()) };
         if self.custom_update(id, point, started, ended) {
             return [0.0; 2];
         }
@@ -1172,7 +1179,9 @@ impl TouchControls {
                 *previous = point;
                 [0.0; 2]
             };
-            return delta;
+            let attacking = self.state().triggers[1] > 0.0
+                || self.held_custom_tokens().any(|key| matches!(key, "key.mouse.left" | "action:key.attack"));
+            return aim_scaling::scale(delta, aspect, seconds, attacking, &self.settings);
         }
         [0.0; 2]
     }
@@ -1180,6 +1189,7 @@ impl TouchControls {
         self.inventory_shift = false;
         self.clear_custom();
         self.fingers.clear();
+        self.motion_times.clear();
         self.passthrough_fingers.clear();
         self.builtin_swipe_ctrl.clear();
         self.latched_controls = 0;
@@ -3017,5 +3027,56 @@ mod tests {
         touch.update(2, center, false, true);
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
+    }
+}
+
+#[cfg(test)]
+mod touch_aim_scaling_integration {
+    use super::*;
+
+    #[test]
+    fn custom_attack_hold_scales_look_drag_and_release_restores() {
+        let mut t = TouchControls::default();
+        t.settings.custom_buttons.clear();
+        t.settings.attack_aim_scaling = true;
+        t.settings.attack_aim_scale = 0.5;
+        let mut hit = CustomButton::new("key.mouse.left".into(), 0);
+        hit.layouts = [Placement::new(0.75, 0.75, 0.1); 3];
+        t.settings.custom_buttons.push(hit);
+        t.update(9, [0.55, 0.4], true, false);
+        let normal = t.update(9, [0.60, 0.4], false, false);
+        assert!(normal[0] > 0.0, "a plain look drag turns the camera");
+        t.update(2, [0.75, 0.75], true, false);
+        let held = t.update(9, [0.65, 0.4], false, false);
+        assert!((held[0] / normal[0] - 0.5).abs() < 1e-5, "held Hit scales the drag");
+        t.update(2, [0.75, 0.75], false, true);
+        let restored = t.update(9, [0.70, 0.4], false, false);
+        assert!((restored[0] / normal[0] - 1.0).abs() < 1e-5);
+        t.update(9, [0.70, 0.4], false, true);
+        assert!(t.motion_times.is_empty());
+        t.clear();
+        assert!(t.motion_times.is_empty());
+    }
+
+    #[test]
+    fn builtin_attack_scales_look_drag_and_movement_is_untouched() {
+        let mut t = TouchControls::default();
+        t.settings.custom_buttons.clear();
+        t.settings.attack_aim_scaling = true;
+        t.settings.attack_aim_scale = 0.25;
+        let attack = t.placement(Control::Attack).center;
+        t.update(2, attack, true, false);
+        assert!(t.state().triggers[1] > 0.0, "held Attack button raises the attack trigger");
+        t.update(9, [0.55, 0.4], true, false);
+        let held = t.update(9, [0.60, 0.4], false, false);
+        t.update(2, attack, false, true);
+        let free = t.update(9, [0.65, 0.4], false, false);
+        assert!((held[0] / free[0] - 0.25).abs() < 1e-5);
+        t.clear();
+        t.update(1, [0.20, 0.60], true, false);
+        t.update(1, [0.20, 0.50], false, false);
+        assert!(t.state().left[1].abs() > 0.0, "joystick still drives movement");
+        t.clear();
+        assert!(t.motion_times.is_empty());
     }
 }

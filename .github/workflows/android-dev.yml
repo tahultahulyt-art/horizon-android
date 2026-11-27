@@ -3,7 +3,7 @@ run-name: Android dev · ${{ github.sha }}
 
 on:
   push:
-    branches: [android, controls-overhaul-zip]
+    branches: [android, controls-overhaul-zip, goy-aim-fix]
     paths:
       - 'crates/**'
       - 'Cargo.toml'
