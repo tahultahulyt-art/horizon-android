@@ -105,6 +105,7 @@ def main():
     parser.add_argument('--release-candidate', action='store_true', help='Build a non-debuggable candidate and audit privacy; this does not authorize redistribution of bundled game resources')
     parser.add_argument('--public', action='store_true', help='Distribution APK: generated tables only; original resources download from Mojang')
     parser.add_argument('--dev-build', help='Public, non-debuggable dev channel label (separate .dev package)')
+    parser.add_argument('--dev-app-id', default='dev.horizon.android.dev', help='Application id for --dev-build; must be unique per app family to avoid package conflicts')
     parser.add_argument('--dev-version-code', type=int, help='Monotonically increasing dev channel version code')
     parser.add_argument('--profile', choices=['release', 'fast', 'dev'], help='Public/candidate builds default to release (ThinLTO); local builds default to optimized fast')
     parser.add_argument('--gradle', type=Path, help='Gradle 8.14 executable (otherwise discover the cached distribution)')
@@ -117,6 +118,8 @@ def main():
             parser.error('--dev-build requires --public and a short alphanumeric/dot/dash label')
         if args.dev_version_code is None or not 1 <= args.dev_version_code <= 2100000000:
             parser.error('--dev-build requires --dev-version-code in 1..2100000000')
+        if not re.fullmatch(r'[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+', args.dev_app_id):
+            parser.error('--dev-app-id must be a valid Android application id (lowercase dot segments)')
     elif args.dev_version_code is not None:
         parser.error('--dev-version-code requires --dev-build')
     if args.profile is None:
@@ -224,7 +227,7 @@ def main():
         gradle = candidates[0]
     environment['ANDROID_HOME'] = str(args.sdk)
     variant = 'release' if args.release_candidate else 'debug'
-    dev_properties = (['-PappId=dev.horizon.android.dev', '-PdevBuild=' + args.dev_build,
+    dev_properties = (['-PappId=' + args.dev_app_id, '-PdevBuild=' + args.dev_build,
                        '-PdevVersionCode=' + str(args.dev_version_code)] if args.dev_build else [])
     run([gradle, '--no-daemon', '-p', ROOT / 'packaging/android', '-Pabi=' + args.abi, '-PminSdk=' + str(min_sdk), *dev_properties, 'assemble' + variant.title()], cwd=ROOT, env=environment)
     apk = output / ('horizon-android-public.apk' if args.public else 'horizon-android-release.apk' if args.release_candidate else 'horizon-android.apk')
@@ -234,7 +237,7 @@ def main():
     run([*signer, 'verify', '--verbose', apk])
     if args.release_candidate:
         import sys
-        run([sys.executable, ROOT / 'tools/check_android_release.py', apk, '--aapt2', tools / ('aapt2' + suffix), *(['--public'] if args.public else []), *(['--app-id', 'dev.horizon.android.dev'] if args.dev_build else [])], cwd=ROOT)
+        run([sys.executable, ROOT / 'tools/check_android_release.py', apk, '--aapt2', tools / ('aapt2' + suffix), *(['--public'] if args.public else []), *(['--app-id', args.dev_app_id] if args.dev_build else [])], cwd=ROOT)
     print(f'APK: {apk}', flush=True)
 
 
