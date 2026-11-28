@@ -132,7 +132,6 @@ jobs:
           # conflicts on-device (install over requires the same signer). Feature
           # branches that ship to users get their own id here.
           DEV_APP_ID=dev.horizon.android.dev
-          if [ "${GITHUB_REF_NAME}" = "goy-aim-fix" ]; then DEV_APP_ID=com.goydevv.horizon; fi
           echo "dev_app_id=$DEV_APP_ID" >> "$GITHUB_ENV"
           python3 tools/android_build.py --abi "$ABI" --public --profile release \
             --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME_17_X64:-$JAVA_HOME}" --gradle "$(command -v gradle)" \
