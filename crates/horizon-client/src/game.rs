@@ -2708,8 +2708,8 @@ struct Game<'a> {
     persist: persist::EntityMemory,
     /// Connected to a server: the world comes from the network (game/remote.rs).
     remote: Option<remote::Remote>,
-    /// Replay recorder (crate::recorder): Some while a recording runs.
-    recorder: Option<crate::recorder::Recorder>,
+    /// Replay recorder (horizon_client::recorder): Some while it runs.
+    recorder: Option<horizon_client::recorder::Recorder>,
     /// This world is open to the network (game/lan.rs).
     lan: Option<lan::LanHost>,
     /// Single player's server thread, which `remote` is connected to.
@@ -7345,8 +7345,8 @@ impl Game<'_> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let path = dir.join(crate::recorder::file_name(secs));
-        match crate::recorder::Recorder::start(path, &self.level.name) {
+        let path = dir.join(horizon_client::recorder::file_name(secs));
+        match horizon_client::recorder::Recorder::start(path, &self.level.name) {
             Ok(recorder) => {
                 self.world.recorder_writes = Some(Vec::new());
                 self.recorder = Some(recorder);
@@ -7405,9 +7405,9 @@ impl Game<'_> {
             if m.removed {
                 continue;
             }
-            entities.push(crate::recorder::EntityPose {
+            entities.push(horizon_client::recorder::EntityPose {
                 id: m.id,
-                class: crate::recorder::CLASS_MOB,
+                class: horizon_client::recorder::CLASS_MOB,
                 name: m.kind.id.clone(),
                 aux: 0,
                 pos: [m.position.x as f32, m.position.y as f32, m.position.z as f32],
@@ -7421,9 +7421,9 @@ impl Game<'_> {
             });
         }
         for it in &self.dropped {
-            entities.push(crate::recorder::EntityPose {
+            entities.push(horizon_client::recorder::EntityPose {
                 id: it.id,
-                class: crate::recorder::CLASS_ITEM,
+                class: horizon_client::recorder::CLASS_ITEM,
                 name: it.stack.item.to_string(),
                 aux: it.stack.count,
                 pos: [it.position.x as f32, it.position.y as f32, it.position.z as f32],
@@ -7435,9 +7435,9 @@ impl Game<'_> {
             });
         }
         for o in &self.orbs {
-            entities.push(crate::recorder::EntityPose {
+            entities.push(horizon_client::recorder::EntityPose {
                 id: o.id,
-                class: crate::recorder::CLASS_ORB,
+                class: horizon_client::recorder::CLASS_ORB,
                 name: "minecraft:experience_orb".into(),
                 aux: o.value,
                 pos: [o.position.x as f32, o.position.y as f32, o.position.z as f32],
@@ -7465,7 +7465,7 @@ impl Game<'_> {
                         }
                     })
                     .collect();
-                new_chunks.push(crate::recorder::ChunkSnap {
+                new_chunks.push(horizon_client::recorder::ChunkSnap {
                     cx: *cx,
                     cz: *cz,
                     min_y: chunk.min_y(),
@@ -7474,7 +7474,7 @@ impl Game<'_> {
             }
         }
         let failed = recorder
-            .tick(crate::recorder::TickFrame {
+            .tick(horizon_client::recorder::TickFrame {
                 game_time: self.world.game_time,
                 raining: self.world.weather.raining,
                 thundering: self.world.weather.thundering,
