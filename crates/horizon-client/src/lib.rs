@@ -117,6 +117,7 @@ pub mod raid;
 pub mod random_tick_sections;
 pub mod recipe_book;
 pub mod recipe_book_screen;
+pub mod recorder;
 pub mod reconnect;
 pub mod resource_install;
 pub mod save;

@@ -2708,6 +2708,8 @@ struct Game<'a> {
     persist: persist::EntityMemory,
     /// Connected to a server: the world comes from the network (game/remote.rs).
     remote: Option<remote::Remote>,
+    /// Replay recorder (crate::recorder): Some while a recording runs.
+    recorder: Option<crate::recorder::Recorder>,
     /// This world is open to the network (game/lan.rs).
     lan: Option<lan::LanHost>,
     /// Single player's server thread, which `remote` is connected to.
@@ -7289,7 +7291,205 @@ impl Game<'_> {
                 self.throw_from_eyes(stack, eye, false);
             }
         }
-        self.tick_world(running)
+        let result = self.tick_world(running);
+        if result.is_ok() {
+            self.recorder_tick();
+        }
+        result
+    }
+    /// `/record start|stop` and the pause-menu button both come here: start
+    /// in a single player world, or stop the running recording.
+    pub(super) fn recorder_toggle(&mut self) {
+        if self.recorder.is_some() {
+            self.recorder_stop(None);
+        } else {
+            self.recorder_start();
+        }
+    }
+    /// Handles a `/record`-family chat command; true when it was ours.
+    pub(super) fn recorder_command(&mut self, command: &str) -> bool {
+        let mut words = command.split_whitespace();
+        if !matches!(words.next(), Some("record") | Some("rec")) {
+            return false;
+        }
+        match words.next() {
+            Some("stop") if self.recorder.is_some() => self.recorder_stop(None),
+            Some("stop") => self.recorder_chat("No recording is running."),
+            _ if self.recorder.is_some() => self.recorder_chat(
+                "Already recording. /record stop or the pause button ends it.",
+            ),
+            _ => self.recorder_start(),
+        }
+        true
+    }
+    fn recorder_start(&mut self) {
+        if self.remote.is_some() {
+            self.recorder_chat("Recording works in single player worlds for now.");
+            return;
+        }
+        if self.player.is_none() {
+            return;
+        }
+        let dir = match std::env::current_dir() {
+            Ok(dir) => dir.join("recordings"),
+            Err(error) => {
+                self.recorder_chat(format!("Recording failed: {error}"));
+                return;
+            }
+        };
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            self.recorder_chat(format!("Recording failed: {error}"));
+            return;
+        }
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = dir.join(crate::recorder::file_name(secs));
+        match crate::recorder::Recorder::start(path, &self.level.name) {
+            Ok(recorder) => {
+                self.world.recorder_writes = Some(Vec::new());
+                self.recorder = Some(recorder);
+                self.recorder_chat("Recording started. /record stop ends it.");
+            }
+            Err(error) => self.recorder_chat(format!("Recording failed: {error}")),
+        }
+    }
+    fn recorder_stop(&mut self, note: Option<String>) {
+        self.world.recorder_writes = None;
+        if let Some(recorder) = self.recorder.take() {
+            match recorder.finish() {
+                Ok((path, ticks)) => self.recorder_chat(format!(
+                    "Recording saved: {} ({} ticks)",
+                    path.display(),
+                    ticks
+                )),
+                Err(error) => {
+                    self.recorder_chat(format!("Recording save failed: {error}"))
+                }
+            }
+        }
+        if let Some(note) = note {
+            self.recorder_chat(note);
+        }
+    }
+    fn recorder_chat(&mut self, message: impl Into<String>) {
+        let focused = self.screen == Screen::Chat;
+        self.ui.chat.add(
+            &self.gui.atlas,
+            horizon_client::text::Text::literal(message),
+            None,
+            horizon_client::chat::ChatSource::Client,
+            self.ticks,
+            focused,
+        );
+    }
+    /// After each world tick: log the POV camera, every live entity, that
+    /// tick's block changes and any newly seen chunks. Capture only.
+    fn recorder_tick(&mut self) {
+        if self.recorder.is_none() {
+            return;
+        }
+        let Some(eye) = self.eye_position() else {
+            return;
+        };
+        let block_changes = self
+            .world
+            .recorder_writes
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default();
+        let mut entities =
+            Vec::with_capacity(self.mobs.len() + self.dropped.len() + self.orbs.len());
+        for m in &self.mobs {
+            if m.removed {
+                continue;
+            }
+            entities.push(crate::recorder::EntityPose {
+                id: m.id,
+                class: crate::recorder::CLASS_MOB,
+                name: m.kind.id.clone(),
+                aux: 0,
+                pos: [m.position.x as f32, m.position.y as f32, m.position.z as f32],
+                yaw: m.yaw,
+                head_yaw: m.head_yaw,
+                head_pitch: m.head_pitch,
+                flags: (m.on_ground as u8)
+                    | ((m.hurt_time > 0) as u8) << 1
+                    | ((m.death_time > 0) as u8) << 2,
+                health: m.health,
+            });
+        }
+        for it in &self.dropped {
+            entities.push(crate::recorder::EntityPose {
+                id: it.id,
+                class: crate::recorder::CLASS_ITEM,
+                name: it.stack.item.to_string(),
+                aux: it.stack.count,
+                pos: [it.position.x as f32, it.position.y as f32, it.position.z as f32],
+                yaw: 0.0,
+                head_yaw: 0.0,
+                head_pitch: 0.0,
+                flags: it.on_ground as u8,
+                health: 0.0,
+            });
+        }
+        for o in &self.orbs {
+            entities.push(crate::recorder::EntityPose {
+                id: o.id,
+                class: crate::recorder::CLASS_ORB,
+                name: "minecraft:experience_orb".into(),
+                aux: o.value,
+                pos: [o.position.x as f32, o.position.y as f32, o.position.z as f32],
+                yaw: 0.0,
+                head_yaw: 0.0,
+                head_pitch: 0.0,
+                flags: o.on_ground as u8,
+                health: 0.0,
+            });
+        }
+        let recorder = self.recorder.as_mut().unwrap();
+        let mut new_chunks = Vec::new();
+        for ((cx, cz), chunk) in self.world.chunks.iter() {
+            if recorder.needs_chunk(*cx, *cz) {
+                let sections = chunk
+                    .sections
+                    .iter()
+                    .map(|s| {
+                        if let Some(uniform) = s.blocks.uniform() {
+                            Ok(uniform)
+                        } else {
+                            let mut full = Box::new([0u32; 4096]);
+                            s.unpack(&mut full);
+                            Err(full)
+                        }
+                    })
+                    .collect();
+                new_chunks.push(crate::recorder::ChunkSnap {
+                    cx: *cx,
+                    cz: *cz,
+                    min_y: chunk.min_y(),
+                    sections,
+                });
+            }
+        }
+        let failed = recorder
+            .tick(crate::recorder::TickFrame {
+                game_time: self.world.game_time,
+                raining: self.world.weather.raining,
+                thundering: self.world.weather.thundering,
+                eye,
+                yaw: self.yaw,
+                pitch: self.pitch,
+                selected: self.selected as u8,
+                entities,
+                block_changes,
+                new_chunks,
+            })
+            .err();
+        if let Some(error) = failed {
+            self.recorder_stop(Some(format!("Recording stopped, write failed: {error}")));
+        }
     }
     /// What the tick runs after the local player's own update: effects, the
     /// world's entities and blocks, and the network hub.
@@ -8375,6 +8575,11 @@ impl Game<'_> {
         {
             let tw = HudBatch::text_width(atlas, text);
             batch.text(atlas, text, (w - tw) / 2.0, h - 59.0, u32::MAX, true);
+        }
+        if show_hud && let Some(recorder) = &self.recorder {
+            let secs = recorder.ticks() / 20;
+            let text = format!("\u{25cf} REC {:02}:{:02}", secs / 60, secs % 60);
+            batch.text(atlas, &text, 4.0, 4.0, horizon_client::hud::rgba(255, 60, 60, 255), true);
         }
         self.draw_chat(&mut batch);
         self.draw_tab_list(&mut batch);
@@ -12129,6 +12334,7 @@ impl Game<'_> {
         Ok(())
     }
     fn close_world(&mut self) -> Result<()> {
+        self.recorder_stop(None);
         self.clear_waypoints();
         self.post_effects.clear();
         self.spectated_post_effect = None;
@@ -18852,6 +19058,7 @@ impl<'a> Game<'a> {
             water_plane_scan: Default::default(),
             persist: Default::default(),
             remote: None,
+            recorder: None,
             lan: None,
             integrated: None,
             level_shapes: Default::default(),

@@ -100,6 +100,9 @@ pub struct World {
     /// for `ServerLevel.sendBlockUpdated`'s path recomputing; kept only while
     /// the mobs of this world tick (`game/creatures.rs`).
     pub path_writes: Option<Vec<((i32, i32, i32), u32, u32)>>,
+    /// Every write since the recorder last drained (position, new state);
+    /// kept only while a replay recording runs (`horizon_client::recorder`).
+    pub recorder_writes: Option<Vec<((i32, i32, i32), u32)>>,
     /// The sections whose light changed since the log was last drained, as
     /// a bit per section of each column, kept while `block_log` is
     /// (`ChunkHolder.sectionLightChanged`).
@@ -208,6 +211,7 @@ impl World {
             weather: Weather::default(),
             block_log: None,
             path_writes: None,
+            recorder_writes: None,
             light_log: None,
             moving_piston_fallback: Vec::new(),
             moving_pistons: Vec::new(),
@@ -320,6 +324,9 @@ impl World {
             }
             if let Some(writes) = &mut self.path_writes {
                 writes.push(((x, y, z), previous, state.0));
+            }
+            if let Some(writes) = &mut self.recorder_writes {
+                writes.push(((x, y, z), state.0));
             }
             self.modified.insert((x >> 4, z >> 4));
             if visible {

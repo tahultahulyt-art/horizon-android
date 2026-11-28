@@ -890,6 +890,11 @@ impl Game<'_> {
         // unless a client mod owns the command.
         if self.remote.is_some() {
             if let Some(command) = message.strip_prefix('/')
+                && self.recorder_command(command)
+            {
+                return;
+            }
+            if let Some(command) = message.strip_prefix('/')
                 && self.client_mod_command(command)
             {
                 return;
@@ -898,7 +903,10 @@ impl Game<'_> {
             return;
         }
         if let Some(command) = message.strip_prefix('/') {
-            // A client mod's command first, then a server mod's, as on a server.
+            // The recorder's, then a client mod's, then a server mod's.
+            if self.recorder_command(command) {
+                return;
+            }
             if !self.client_mod_command(command) && !self.local_server_mod_command(command) {
                 self.run_command(command);
             }

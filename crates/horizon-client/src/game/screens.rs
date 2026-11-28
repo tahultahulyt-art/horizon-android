@@ -76,6 +76,9 @@ fn pause_buttons(
         (x0 + 4.0, y0 + 50.0, 204.0, "menu.returnToGame", 0, true),
         (x0 + 4.0, y0 + 74.0, 98.0, "gui.advancements", 4, true),
         (x0 + 110.0, y0 + 74.0, 98.0, "gui.stats", 3, true),
+        // The recorder's toggle; its label follows the recording state, so
+        // the caller draws it (id 15).
+        (x0 + 4.0, y0 + 98.0, 204.0, "", 15, true),
     ];
     if additions {
         // addCustomDialogButtons: one full-width button, labelled with the
@@ -248,6 +251,11 @@ impl Game<'_> {
             let hover = active && (ui::hovered(self.cursor, x, y, bw, 20.0) || is_focused);
             let label = match (id, &additions) {
                 (14, Some((label, _))) => label.clone(),
+                (15, _) => Text::literal(if self.recorder.is_some() {
+                    "Stop Recording"
+                } else {
+                    "Record"
+                }),
                 _ => Text::translate(key, &[]),
             };
             ui::button(batch, atlas, x, y, bw, 20.0, &label, active, hover);
@@ -356,6 +364,12 @@ impl Game<'_> {
                 }
             }
             2 => self.close_world()?,
+            // The recorder's toggle: starts in a single player world, stops
+            // the running recording; the menu stays open.
+            15 => {
+                self.pause_focus = None;
+                self.recorder_toggle();
+            }
             _ => {}
         }
         Ok(())

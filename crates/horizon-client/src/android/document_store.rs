@@ -95,6 +95,7 @@ fn resolve(home: &Path, id: &str) -> io::Result<Document> {
             Some("packs") => ("resourcepacks", "Resource Packs"),
             Some("shaders") => ("shaderpacks", "Shader Packs"),
             Some("worlds") => ("saves", "Worlds"),
+            Some("recordings") => ("recordings", "Recordings"),
             Some("configuration") => ("", "Configuration"),
             _ => return Err(invalid()),
         };
@@ -201,6 +202,7 @@ pub fn children(home: &Path, id: &str) -> io::Result<Vec<Value>> {
             "packs",
             "shaders",
             "worlds",
+            "recordings",
             "configuration",
             "reports",
         ]
@@ -602,6 +604,7 @@ pub const FM_ROOT_DIRS: &[(&str, &str)] = &[
     ("shaderpacks", "Shaders"),
     ("controls", "Controls"),
     ("screenshots", "Shots"),
+    ("recordings", "Recordings"),
     ("performance", "Reports"),
 ];
 
